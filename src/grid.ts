@@ -96,4 +96,79 @@ export class Grid {
 	setCellSize(size: number): void {
 		this.cellSize = size;
 	}
+
+	generateRandomMaze(): void {
+		// Initialize all cells as walls
+		for (let y = 0; y < this.height; y++) {
+			for (let x = 0; x < this.width; x++) {
+				this.grid[y][x] = 1;
+			}
+		}
+
+		// Recursive backtracking algorithm
+		const stack: { x: number; y: number }[] = [];
+		const startX = 1;
+		const startY = 1;
+
+		// Start from a random position (must be odd to create proper corridors)
+		const startPos = {
+			x: startX % 2 === 0 ? startX + 1 : startX,
+			y: startY % 2 === 0 ? startY + 1 : startY
+		};
+
+		this.grid[startPos.y][startPos.x] = 0; // Mark as path
+		stack.push(startPos);
+
+		while (stack.length > 0) {
+			const current = stack[stack.length - 1];
+			const neighbors = this.getUnvisitedNeighbors(current.x, current.y);
+
+			if (neighbors.length > 0) {
+				// Choose random neighbor
+				const randomIndex = Math.floor(Math.random() * neighbors.length);
+				const chosen = neighbors[randomIndex];
+
+				// Remove wall between current and chosen
+				const wallX = current.x + (chosen.x - current.x) / 2;
+				const wallY = current.y + (chosen.y - current.y) / 2;
+				this.grid[wallY][wallX] = 0;
+				this.grid[chosen.y][chosen.x] = 0;
+
+				stack.push(chosen);
+			} else {
+				stack.pop();
+			}
+		}
+	}
+
+	generateRandomGrid(probability: number = 0.2): void {
+		for (let y = 0; y < this.height; y++) {
+			for (let x = 0; x < this.width; x++) {
+				this.grid[y][x] = Math.random() < probability ? 1 : 0;
+			}
+		}
+	}
+
+	private getUnvisitedNeighbors(x: number, y: number): { x: number; y: number }[] {
+		const neighbors: { x: number; y: number }[] = [];
+		const directions = [
+			{ dx: 0, dy: -2 }, // Up
+			{ dx: 2, dy: 0 },  // Right
+			{ dx: 0, dy: 2 },  // Down
+			{ dx: -2, dy: 0 }  // Left
+		];
+
+		for (const dir of directions) {
+			const newX = x + dir.dx;
+			const newY = y + dir.dy;
+
+			if (newX > 0 && newX < this.width - 1 && newY > 0 && newY < this.height - 1) {
+				if (this.grid[newY][newX] === 1) {
+					neighbors.push({ x: newX, y: newY });
+				}
+			}
+		}
+
+		return neighbors;
+	}
 }

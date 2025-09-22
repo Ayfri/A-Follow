@@ -3,6 +3,7 @@ import type { Player } from './player';
 import type { Grid } from './grid';
 import { Slider } from './inputs/Slider';
 import { ColorInput } from './inputs/ColorInput';
+import { Button } from './inputs/Button';
 import { Theme } from './Theme';
 
 export class Overlay {
@@ -13,6 +14,9 @@ export class Overlay {
 	private pathColorInput!: ColorInput;
 	private gridColorInput!: ColorInput;
 	private playerColorInput!: ColorInput;
+	private generateMazeButton!: Button;
+	private generateRandomGridButton!: Button;
+	private randomGridProbabilitySlider!: Slider;
 	private container!: p5.Element;
 	private p: p5;
 	private player: Player;
@@ -30,6 +34,8 @@ export class Overlay {
 		this.createContainer();
 		this.createSpeedControls();
 		this.createGridSizeControls();
+		this.createMazeControls();
+		this.createRandomGridControls();
 		this.createColorControls();
 	}
 
@@ -128,9 +134,61 @@ export class Overlay {
 		this.playerColorInput.init(this.container);
 	}
 
+	private createMazeControls(): void {
+		this.generateMazeButton = new Button(this.p, {
+			label: 'Generate Random Maze',
+			onClick: () => {
+				this.grid.generateRandomMaze();
+			}
+		});
+		this.generateMazeButton.init(this.container);
+	}
+
+	private createRandomGridControls(): void {
+		this.randomGridProbabilitySlider = new Slider(this.p, {
+			label: 'Random Grid Probability',
+			min: 0.05,
+			max: 0.6,
+			defaultValue: 0.2,
+			step: 0.025,
+			storageKey: 'random-grid-probability',
+			onChange: (probability: number) => {
+				// Update button label to show current probability (only if button exists)
+				if (this.generateRandomGridButton) {
+					this.updateRandomGridButtonLabel(probability);
+				}
+			}
+		});
+
+		this.generateRandomGridButton = new Button(this.p, {
+			label: 'Generate Random Grid (0.20)',
+			onClick: () => {
+				const probability = this.randomGridProbabilitySlider.getValue();
+				this.grid.generateRandomGrid(probability);
+			}
+		});
+
+		// Initialize slider first
+		this.randomGridProbabilitySlider.init(this.container);
+		// Then initialize button
+		this.generateRandomGridButton.init(this.container);
+
+		// Initialize button label with current slider value
+		this.updateRandomGridButtonLabel(this.randomGridProbabilitySlider.getValue());
+	}
+
+	private updateRandomGridButtonLabel(probability: number): void {
+		// Access the button element directly to update its text
+		const buttonElement = this.generateRandomGridButton.button;
+        buttonElement?.html(`Generate Random Grid (${probability.toFixed(3)})`);
+	}
+
 	destroy(): void {
         this.speedSlider?.destroy();
         this.gridSizeSlider?.destroy();
+        this.randomGridProbabilitySlider?.destroy();
+        this.generateMazeButton?.destroy();
+        this.generateRandomGridButton?.destroy();
         this.backgroundColorInput?.destroy();
         this.activeCellColorInput?.destroy();
         this.pathColorInput?.destroy();

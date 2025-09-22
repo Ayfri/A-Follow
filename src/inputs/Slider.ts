@@ -61,9 +61,7 @@ export class Slider {
 			const value = this.getValue();
 			this.updateLabel(value);
 			this.saveToStorage(value);
-			if (this.config.onChange) {
-				this.config.onChange(value);
-			}
+            this.config.onChange?.(value);
 		});
 	}
 
@@ -71,9 +69,7 @@ export class Slider {
 		if (this.config.storageKey) {
 			const savedValue = StorageManager.load(this.config.storageKey, this.config.defaultValue);
 			this.setValue(savedValue);
-			if (this.config.onChange) {
-				this.config.onChange(savedValue);
-			}
+            this.config.onChange?.(savedValue);
 		}
 	}
 
@@ -88,17 +84,15 @@ export class Slider {
 	}
 
 	getValue(): number {
-		return (this.slider as any).value() as number;
+		return this.slider.value() as number;
 	}
 
 	setValue(value: number): void {
-		(this.slider as any).value(value);
+		this.slider.value(value);
 		this.updateLabel(value);
 	}
 
 	destroy(): void {
-		if (this.container) {
-			this.container.remove();
-		}
+		this.container?.remove();
 	}
 }

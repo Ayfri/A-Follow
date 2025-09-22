@@ -54,15 +54,13 @@ export class ColorInput {
         this.colorInput.style('background', 'none');
 
 		queueMicrotask(() => {
-			(this.colorInput as any).value(this.config.defaultValue);
+			this.colorInput.value(this.config.defaultValue);
 		});
 
 		(this.colorInput as any).input(() => {
 			const color = this.getValue();
 			this.saveToStorage(color);
-			if (this.config.onChange) {
-				this.config.onChange(color);
-			}
+			this.config.onChange?.(color);
 		});
 	}
 
@@ -70,9 +68,7 @@ export class ColorInput {
 		if (this.config.storageKey) {
 			const savedValue = StorageManager.load(this.config.storageKey, this.config.defaultValue);
 			this.setValue(savedValue);
-			if (this.config.onChange) {
-				this.config.onChange(savedValue);
-			}
+			this.config.onChange?.(savedValue);
 		}
 	}
 
@@ -83,16 +79,14 @@ export class ColorInput {
 	}
 
 	getValue(): string {
-		return (this.colorInput as any).value() as string;
+		return this.colorInput.value() as string;
 	}
 
 	setValue(color: string): void {
-		(this.colorInput as any).value(color);
+		this.colorInput.value(color);
 	}
 
 	destroy(): void {
-		if (this.container) {
-			this.container.remove();
-		}
+		this.container?.remove();
 	}
 }
