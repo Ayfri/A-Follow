@@ -9,9 +9,9 @@ export interface ColorTheme {
 export class Theme {
 	private theme: ColorTheme = {
 		background: '#000000',
-		activeCell: '#0000ff',
-		path: '#00ff00',
-		grid: '#323232',
+		activeCell: '#3333bb',
+		path: '#004400',
+		grid: '#222222',
 		player: '#ffffff'
 	};
 
