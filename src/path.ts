@@ -42,9 +42,9 @@ function getNeighbors(pos: Position, gridWidth: number, gridHeight: number): Pos
 }
 
 /** Checks if a position is walkable (not an obstacle) */
-function isWalkable(pos: Position, grid: {x: number, y: number, state: number}[], gridWidth: number): boolean {
-    const index = pos.y * gridWidth + pos.x;
-    return grid[index].state === 0;
+function isWalkable(pos: Position, grid: number[][], gridWidth: number): boolean {
+    if (pos.x < 0 || pos.x >= gridWidth || pos.y < 0 || pos.y >= grid.length) return false;
+    return grid[pos.y][pos.x] === 0;
 }
 
 /** Reconstructs the path from end node to start */
@@ -75,7 +75,7 @@ function reconstructPath(endNode: Node): Position[] {
 export function aStar(
     start: Position,
     end: Position,
-    grid: {x: number, y: number, state: number}[],
+    grid: number[][],
     gridWidth: number,
     gridHeight: number
 ): Position[] | null {
