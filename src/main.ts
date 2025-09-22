@@ -35,11 +35,8 @@ const sketch = (p: p5) => {
 		const currentTheme = theme.getTheme();
 		p.background(currentTheme.background);
 		
-		// Draw grid
-		grid.draw(p, currentTheme.activeCell, currentTheme.grid);
-
-		// Draw player
-		player.draw(p, grid, currentTheme.player);
+		// Draw active cells (walls) first
+		grid.drawActiveCells(p, currentTheme.activeCell);
 		
 		// Highlight selected path
 		p.fill(currentTheme.path);
@@ -48,6 +45,12 @@ const sketch = (p: p5) => {
 			const cellSize = grid.getCellSize();
 			p.rect(pixelPos.x, pixelPos.y, cellSize, cellSize);
 		}
+
+		// Draw grid lines
+		grid.drawGrid(p, currentTheme.grid);
+
+		// Draw player last (on top of everything)
+		player.draw(p, grid, currentTheme.player);
 
 		// Recalculate path every frame
 		const newSelectedPath = aStar(

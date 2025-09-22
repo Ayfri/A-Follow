@@ -55,16 +55,7 @@ export class Grid {
 		};
 	}
 
-	draw(p: p5, activeCellColor?: string, gridColor?: string): void {
-		// Draw grid borders
-		p.noFill();
-		p.stroke(gridColor || '#323232');
-		for (let x = 0; x < this.width; x++) {
-			for (let y = 0; y < this.height; y++) {
-				p.rect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize);
-			}
-		}
-
+	drawActiveCells(p: p5, activeCellColor?: string): void {
 		// Draw active cells (walls)
 		p.fill(activeCellColor || '#0000ff');
 		p.noStroke();
@@ -75,6 +66,22 @@ export class Grid {
 				}
 			}
 		}
+	}
+
+	drawGrid(p: p5, gridColor?: string): void {
+		// Draw grid borders
+		p.noFill();
+		p.stroke(gridColor || '#323232');
+		for (let x = 0; x < this.width; x++) {
+			for (let y = 0; y < this.height; y++) {
+				p.rect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize);
+			}
+		}
+	}
+
+	draw(p: p5, activeCellColor?: string, gridColor?: string): void {
+		this.drawActiveCells(p, activeCellColor);
+		this.drawGrid(p, gridColor);
 	}
 
 	// Get raw grid data for pathfinding
