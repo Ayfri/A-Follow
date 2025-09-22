@@ -10,7 +10,7 @@ export class Player {
 	private path: Position[] = [];
 	private currentPathIndex: number = 0; // Track position in path without modifying it
 
-	constructor(speed: number = 5) {
+	constructor(speed: number = 8) {
 		this.speed = speed;
 	}
 
@@ -38,14 +38,18 @@ export class Player {
 			const timeSinceLastMove = now - this.lastMoveTime;
 			const moveInterval = 1000 / this.speed; // milliseconds per cell
 
-			if (timeSinceLastMove >= moveInterval) {
-				// Move to next cell in path
-				this.currentPathIndex++;
-				if (this.currentPathIndex < this.path.length) {
-					this.x = this.path[this.currentPathIndex].x;
-					this.y = this.path[this.currentPathIndex].y;
-				}
-				this.lastMoveTime = now;
+			// Calculate how many moves should have happened since last move
+			const movesToMake = Math.floor(timeSinceLastMove / moveInterval);
+
+			if (movesToMake > 0) {
+				// Move multiple steps if necessary
+				const newIndex = Math.min(this.currentPathIndex + movesToMake, this.path.length - 1);
+				this.currentPathIndex = newIndex;
+				this.x = this.path[this.currentPathIndex].x;
+				this.y = this.path[this.currentPathIndex].y;
+				
+				// Update lastMoveTime, accounting for the moves made
+				this.lastMoveTime = now - (timeSinceLastMove % moveInterval);
 			}
 		} else {
 			this.lastMoveTime = p.millis();
