@@ -3,12 +3,14 @@ import { Grid } from './grid';
 import { Player } from './player';
 import { Overlay } from './overlay';
 import { Theme } from './Theme';
+import { DrawingSystem } from './draw';
 import './style.css';
 import p5 from 'p5';
 
 const grid = new Grid(20);
 const player = new Player(5);
 const theme = new Theme();
+const drawingSystem = new DrawingSystem(grid);
 
 let selectedPath: Position[] = [];
 let overlay: Overlay;
@@ -83,21 +85,19 @@ const sketch = (p: p5) => {
 		mouseXCell = cell.x;
 		mouseYCell = cell.y;
 		
-		if (p.mouseButton.left) {
-			grid.setCell(cell.x, cell.y, 1); // Draw wall
-		} else if (p.mouseButton.right) {
-			grid.setCell(cell.x, cell.y, 0); // Erase wall
-		}
+		drawingSystem.handleMouseDragged(p);
 	};
 	
 	p.mousePressed = () => {
 		const cell = grid.getCellFromPixel(p.mouseX, p.mouseY);
+		mouseXCell = cell.x;
+		mouseYCell = cell.y;
 		
-		if (p.mouseButton.left) {
-			grid.setCell(cell.x, cell.y, 1); // Draw wall
-		} else if (p.mouseButton.right) {
-			grid.setCell(cell.x, cell.y, 0); // Erase wall
-		}
+		drawingSystem.handleMousePressed(p);
+	};
+	
+	p.mouseReleased = () => {
+		drawingSystem.handleMouseReleased();
 	};
 	
 	p.windowResized = () => {
