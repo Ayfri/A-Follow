@@ -1,7 +1,25 @@
 {
-  "name": "apath",
+  "name": "a-follow",
   "private": true,
   "version": "0.0.0",
+  "description": "AFollow: A p5.js + A* path algorithm small experiment",
+  "keywords": [
+    "p5.js",
+    "a-star",
+    "pathfinding",
+    "algorithm",
+    "typescript",
+    "vite",
+    "interactive",
+    "visualization"
+  ],
+  "author": "Ayfri",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ayfri/A-Follow.git"
+  },
+  "homepage": "https://afollow.ayfri.com/",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
