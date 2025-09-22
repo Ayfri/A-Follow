@@ -10,6 +10,8 @@ let grid: number[][] = []; // 2D array for simplicity
 let xPosition = 0; // in cells
 let yPosition = 0; // in cells
 let selectedPath: Position[] = [];
+let speed = 5; // cells per second
+let lastMoveTime = 0;
 
 let mouseXCell = -1;
 let mouseYCell = -1;
@@ -96,6 +98,22 @@ const sketch = (p: p5) => {
 			selectedPath = [];
 		} else {
 			selectedPath = newSelectedPath;
+		}
+
+		// Move along path
+		if (selectedPath.length > 1) {
+			const now = p.millis();
+			const timeSinceLastMove = now - lastMoveTime;
+			const moveInterval = 1000 / speed; // milliseconds per cell
+
+			if (timeSinceLastMove >= moveInterval) {
+				// Move to next cell in path
+				xPosition = selectedPath[1].x;
+				yPosition = selectedPath[1].y;
+				lastMoveTime = now;
+			}
+		} else {
+			lastMoveTime = p.millis();
 		}
 	};
 	p.mouseMoved = () => {
