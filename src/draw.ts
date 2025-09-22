@@ -4,6 +4,9 @@ import type { Grid } from './grid';
 export class DrawingSystem {
 	private prevMouseXCell = -1;
 	private prevMouseYCell = -1;
+	private startMouseXCell = -1; // Point de départ pour les lignes droites
+	private startMouseYCell = -1; // Point de départ pour les lignes droites
+	private lockedAxis: 'horizontal' | 'vertical' | null = null; // Axe verrouillé pendant le drag
 	private isDragging = false;
 	private grid: Grid;
 
@@ -45,12 +48,45 @@ export class DrawingSystem {
 		}
 	}
 
+	// Function to constrain coordinates to straight lines when shift is pressed
+	private constrainToStraightLine(startX: number, startY: number, currentX: number, currentY: number): { x: number; y: number } {
+		// If axis is already locked, use it
+		if (this.lockedAxis === 'horizontal') {
+			return { x: currentX, y: startY };
+		} else if (this.lockedAxis === 'vertical') {
+			return { x: startX, y: currentY };
+		}
+		
+		// If no axis is locked yet, determine and lock the axis based on initial movement
+		const deltaX = Math.abs(currentX - startX);
+		const deltaY = Math.abs(currentY - startY);
+		
+		// Only lock axis if there's some movement (avoid locking on tiny movements)
+		if (deltaX > 0 || deltaY > 0) {
+			if (deltaX > deltaY) {
+				// Lock to horizontal line
+				this.lockedAxis = 'horizontal';
+				return { x: currentX, y: startY };
+			} else {
+				// Lock to vertical line
+				this.lockedAxis = 'vertical';
+				return { x: startX, y: currentY };
+			}
+		}
+		
+		// No movement yet, return current position
+		return { x: currentX, y: currentY };
+	}
+
 	handleMousePressed(p: p5): void {
 		const cell = this.grid.getCellFromPixel(p.mouseX, p.mouseY);
 		
 		this.isDragging = true;
 		this.prevMouseXCell = cell.x;
 		this.prevMouseYCell = cell.y;
+		this.startMouseXCell = cell.x; // Mémoriser le point de départ
+		this.startMouseYCell = cell.y;
+		this.lockedAxis = null; // Réinitialiser l'axe verrouillé
 		
 		// Draw the initial cell
 		if (p.mouseButton.left) {
@@ -60,8 +96,22 @@ export class DrawingSystem {
 		}
 	}
 
-	handleMouseDragged(p: p5): void {
-		const cell = this.grid.getCellFromPixel(p.mouseX, p.mouseY);
+	handleMouseDragged(p: p5, isShiftPressed: boolean = false): void {
+		let cell = this.grid.getCellFromPixel(p.mouseX, p.mouseY);
+		
+		// If shift is pressed, constrain to straight line from start position
+		if (isShiftPressed && this.startMouseXCell !== -1 && this.startMouseYCell !== -1) {
+			const constrainedPos = this.constrainToStraightLine(
+				this.startMouseXCell, 
+				this.startMouseYCell, 
+				cell.x, 
+				cell.y
+			);
+			cell = constrainedPos;
+		} else {
+			// If shift is not pressed, reset the locked axis to allow free drawing
+			this.lockedAxis = null;
+		}
 		
 		// Only draw if we have a valid previous position and current position is different
 		if (this.isDragging && 
@@ -85,6 +135,9 @@ export class DrawingSystem {
 		this.isDragging = false;
 		this.prevMouseXCell = -1;
 		this.prevMouseYCell = -1;
+		this.startMouseXCell = -1;
+		this.startMouseYCell = -1;
+		this.lockedAxis = null; // Réinitialiser l'axe verrouillé
 	}
 
 	isDrawing(): boolean {

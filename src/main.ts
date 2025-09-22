@@ -85,7 +85,9 @@ const sketch = (p: p5) => {
 		mouseXCell = cell.x;
 		mouseYCell = cell.y;
 		
-		drawingSystem.handleMouseDragged(p);
+		// Check if shift key is pressed
+		const isShiftPressed = p.keyIsDown(p.SHIFT);
+		drawingSystem.handleMouseDragged(p, isShiftPressed);
 	};
 	
 	p.mousePressed = () => {
