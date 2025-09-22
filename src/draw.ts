@@ -4,9 +4,9 @@ import type { Grid } from './grid';
 export class DrawingSystem {
 	private prevMouseXCell = -1;
 	private prevMouseYCell = -1;
-	private startMouseXCell = -1; // Point de départ pour les lignes droites
-	private startMouseYCell = -1; // Point de départ pour les lignes droites
-	private lockedAxis: 'horizontal' | 'vertical' | null = null; // Axe verrouillé pendant le drag
+	private startMouseXCell = -1;
+	private startMouseYCell = -1;
+	private lockedAxis: 'horizontal' | 'vertical' | null = null;
 	private isDragging = false;
 	private grid: Grid;
 
@@ -84,10 +84,10 @@ export class DrawingSystem {
 		this.isDragging = true;
 		this.prevMouseXCell = cell.x;
 		this.prevMouseYCell = cell.y;
-		this.startMouseXCell = cell.x; // Mémoriser le point de départ
+		this.startMouseXCell = cell.x;
 		this.startMouseYCell = cell.y;
-		this.lockedAxis = null; // Réinitialiser l'axe verrouillé
-		
+		this.lockedAxis = null;
+
 		// Draw the initial cell
 		if (p.mouseButton.left) {
 			this.grid.setCell(cell.x, cell.y, 1); // Draw wall
@@ -137,7 +137,7 @@ export class DrawingSystem {
 		this.prevMouseYCell = -1;
 		this.startMouseXCell = -1;
 		this.startMouseYCell = -1;
-		this.lockedAxis = null; // Réinitialiser l'axe verrouillé
+		this.lockedAxis = null;
 	}
 
 	isDrawing(): boolean {
