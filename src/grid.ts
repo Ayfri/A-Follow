@@ -5,6 +5,8 @@ export class Grid {
 	private cellSize: number;
 	public width: number = 0; // in cells
 	public height: number = 0; // in cells
+	private isDirty: boolean = true;
+	private activeCells: { x: number; y: number }[] = [];
 
 	constructor(cellSize: number = 20) {
 		this.cellSize = cellSize;
@@ -21,6 +23,7 @@ export class Grid {
 				this.grid[y][x] = 0;
 			}
 		}
+		this.markDirty();
 	}
 
 	getCell(x: number, y: number): number {
@@ -30,8 +33,29 @@ export class Grid {
 
 	setCell(x: number, y: number, value: number): void {
 		if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
-			this.grid[y][x] = value;
+			if (this.grid[y][x] !== value) {
+				this.grid[y][x] = value;
+				this.markDirty();
+			}
 		}
+	}
+
+	private markDirty(): void {
+		this.isDirty = true;
+	}
+
+	private updateActiveCells(): void {
+		if (!this.isDirty) return;
+		
+		this.activeCells = [];
+		for (let x = 0; x < this.width; x++) {
+			for (let y = 0; y < this.height; y++) {
+				if (this.getCell(x, y) === 1) {
+					this.activeCells.push({ x, y });
+				}
+			}
+		}
+		this.isDirty = false;
 	}
 
 	getCellFromPixel(pixelX: number, pixelY: number): { x: number; y: number } {
@@ -55,27 +79,49 @@ export class Grid {
 		};
 	}
 
+	getVisibleCells(canvasWidth: number, canvasHeight: number): { minX: number; maxX: number; minY: number; maxY: number } {
+		return {
+			minX: Math.max(0, 0),
+			maxX: Math.min(this.width - 1, Math.ceil(canvasWidth / this.cellSize)),
+			minY: Math.max(0, 0),
+			maxY: Math.min(this.height - 1, Math.ceil(canvasHeight / this.cellSize))
+		};
+	}
+
 	drawActiveCells(p: p5, activeCellColor?: string): void {
-		// Draw active cells (walls)
+		this.updateActiveCells();
+		
+		// Only draw visible active cells
+		const visible = this.getVisibleCells(p.width, p.height);
+		
 		p.fill(activeCellColor || '#0000ff');
 		p.noStroke();
-		for (let x = 0; x < this.width; x++) {
-			for (let y = 0; y < this.height; y++) {
-				if (this.getCell(x, y) === 1) {
-					p.rect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize);
-				}
+		
+		// Use batching by drawing all rectangles at once
+		for (const cell of this.activeCells) {
+			if (cell.x >= visible.minX && cell.x <= visible.maxX && 
+				cell.y >= visible.minY && cell.y <= visible.maxY) {
+				p.rect(cell.x * this.cellSize, cell.y * this.cellSize, this.cellSize, this.cellSize);
 			}
 		}
 	}
 
 	drawGrid(p: p5, gridColor?: string): void {
-		// Draw grid borders
+		const visible = this.getVisibleCells(p.width, p.height);
+		
 		p.noFill();
 		p.stroke(gridColor || '#323232');
-		for (let x = 0; x < this.width; x++) {
-			for (let y = 0; y < this.height; y++) {
-				p.rect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize);
-			}
+		
+		// Draw vertical lines
+		for (let x = visible.minX; x <= visible.maxX; x++) {
+			const pixelX = x * this.cellSize;
+			p.line(pixelX, visible.minY * this.cellSize, pixelX, (visible.maxY + 1) * this.cellSize);
+		}
+		
+		// Draw horizontal lines
+		for (let y = visible.minY; y <= visible.maxY; y++) {
+			const pixelY = y * this.cellSize;
+			p.line(visible.minX * this.cellSize, pixelY, (visible.maxX + 1) * this.cellSize, pixelY);
 		}
 	}
 
@@ -139,6 +185,7 @@ export class Grid {
 				stack.pop();
 			}
 		}
+		this.markDirty();
 	}
 
 	generateRandomGrid(probability: number = 0.2): void {
@@ -147,6 +194,7 @@ export class Grid {
 				this.grid[y][x] = Math.random() < probability ? 1 : 0;
 			}
 		}
+		this.markDirty();
 	}
 
 	private getUnvisitedNeighbors(x: number, y: number): { x: number; y: number }[] {

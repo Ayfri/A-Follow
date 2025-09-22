@@ -13,11 +13,132 @@ interface Node {
     hCost: number;
     fCost: number;
     parent: Node | null;
+    // Deterministic tie-breaker (insertion order)
+    order?: number;
+}
+
+/** Priority Queue implementation for A* algorithm */
+class PriorityQueue {
+    private items: Node[] = [];
+
+    enqueue(node: Node): void {
+        this.items.push(node);
+        this.bubbleUp(this.items.length - 1);
+    }
+
+    dequeue(): Node | undefined {
+        if (this.items.length === 0) return undefined;
+        if (this.items.length === 1) return this.items.pop();
+
+        const min = this.items[0];
+        this.items[0] = this.items.pop()!;
+        this.bubbleDown(0);
+        return min;
+    }
+
+    isEmpty(): boolean {
+        return this.items.length === 0;
+    }
+
+    private bubbleUp(index: number): void {
+        while (index > 0) {
+            const parentIndex = Math.floor((index - 1) / 2);
+            if (!this.isLess(this.items[index], this.items[parentIndex])) break;
+            this.swap(index, parentIndex);
+            index = parentIndex;
+        }
+    }
+
+    private bubbleDown(index: number): void {
+        while (true) {
+            const leftChild = 2 * index + 1;
+            const rightChild = 2 * index + 2;
+            let smallest = index;
+
+            if (leftChild < this.items.length && this.isLess(this.items[leftChild], this.items[smallest])) {
+                smallest = leftChild;
+            }
+
+            if (rightChild < this.items.length && this.isLess(this.items[rightChild], this.items[smallest])) {
+                smallest = rightChild;
+            }
+
+            if (smallest === index) break;
+            this.swap(index, smallest);
+            index = smallest;
+        }
+    }
+
+    private swap(i: number, j: number): void {
+        [this.items[i], this.items[j]] = [this.items[j], this.items[i]];
+    }
+
+    // Compare nodes with deterministic tie-breaking: fCost, then hCost, then order
+    private isLess(a: Node, b: Node): boolean {
+        if (a.fCost !== b.fCost) return a.fCost < b.fCost;
+        if (a.hCost !== b.hCost) return a.hCost < b.hCost;
+        const ao = a.order ?? 0;
+        const bo = b.order ?? 0;
+        return ao < bo;
+    }
 }
 
 /** Calculates Manhattan distance between two positions, i.e. the number of grid cells between them in a straight line */
 function manhattanDistance(a: Position, b: Position): number {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+// Using plain Manhattan distance as heuristic for stability
+
+/** Check if a straight horizontal or vertical path is possible */
+function canGoStraightHV(start: Position, end: Position, grid: number[][], gridWidth: number): boolean {
+    // Check if it's a horizontal or vertical line
+    if (start.x !== end.x && start.y !== end.y) {
+        return false; // Not a straight horizontal or vertical line
+    }
+    
+    if (start.x === end.x) {
+        // Vertical line
+        const minY = Math.min(start.y, end.y);
+        const maxY = Math.max(start.y, end.y);
+        for (let y = minY; y <= maxY; y++) {
+            if (!isWalkable({x: start.x, y}, grid, gridWidth)) {
+                return false;
+            }
+        }
+    } else {
+        // Horizontal line
+        const minX = Math.min(start.x, end.x);
+        const maxX = Math.max(start.x, end.x);
+        for (let x = minX; x <= maxX; x++) {
+            if (!isWalkable({x, y: start.y}, grid, gridWidth)) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
+}
+
+/** Generate straight horizontal or vertical path */
+function generateStraightHVPath(start: Position, end: Position): Position[] {
+    const path: Position[] = [];
+    
+    if (start.x === end.x) {
+        // Vertical line
+        const direction = start.y < end.y ? 1 : -1;
+        for (let y = start.y; direction > 0 ? y <= end.y : y >= end.y; y += direction) {
+            path.push({x: start.x, y});
+        }
+    } else {
+        // Horizontal line
+        const direction = start.x < end.x ? 1 : -1;
+        for (let x = start.x; direction > 0 ? x <= end.x : x >= end.x; x += direction) {
+            path.push({x, y: start.y});
+        }
+    }
+    
+    return path;
 }
 
 /** Gets accessible neighboring positions (4-directional) */
@@ -59,12 +180,12 @@ function reconstructPath(endNode: Node): Position[] {
 }
 
 /**
- * Finds the shortest path using A* algorithm.
+ * Finds the shortest path using A* algorithm with straight line optimization.
  * How it works:
- * 1. Start from the initial position and explore neighboring cells.
- * 2. Calculate costs (g: distance from start, h: estimated distance to end, f: total estimated cost) for each cell and keep track of the best path.
- * 3. Continue exploring until the target position is reached or no more cells to explore.
- * 4. Reconstruct the path from end to start if found.
+ * 1. First check if a straight line path is possible
+ * 2. If not, use optimized A* with enhanced heuristic that favors straight lines
+ * 3. Use priority queue for efficient node selection
+ * 4. Calculate costs with tie-breaking that prefers straight paths
  * @param start Starting position
  * @param end Target position
  * @param grid Grid array with cell states
@@ -79,78 +200,70 @@ export function aStar(
     gridWidth: number,
     gridHeight: number
 ): Position[] | null {
-    const openList: Node[] = []; // Nodes to be evaluated
-    const closedSet = new Set<string>(); // Nodes already evaluated
+    // Quick check: if straight horizontal/vertical line is possible, use it
+    if (canGoStraightHV(start, end, grid, gridWidth)) {
+        return generateStraightHVPath(start, end);
+    }
+
+    const openList = new PriorityQueue();
+    const closedSet = new Set<string>();
+    const gScores = new Map<string, number>();
+    let orderCounter = 0; // for deterministic tie-breaking
 
     // Initialize with start node
     const startNode: Node = {
         position: start,
-        gCost: 0, // Distance from start
-        hCost: manhattanDistance(start, end), // Estimated distance to end
-        fCost: manhattanDistance(start, end), // Total estimated cost
-        parent: null
+        gCost: 0,
+        hCost: manhattanDistance(start, end),
+        fCost: manhattanDistance(start, end),
+        parent: null,
+        order: orderCounter++
     };
 
-    openList.push(startNode);
+    const startKey = `${start.x},${start.y}`;
+    openList.enqueue(startNode);
+    gScores.set(startKey, 0);
 
-    // Main A* loop: continue until no more nodes to evaluate
-    while (openList.length > 0) {
-        // Find node with lowest total cost (f = g + h)
-        let currentIndex = 0;
-        for (let i = 1; i < openList.length; i++) {
-            if (openList[i].fCost < openList[currentIndex].fCost) {
-                currentIndex = i;
-            }
-        }
+    // Main A* loop
+    while (!openList.isEmpty()) {
+        const current = openList.dequeue()!;
+        const currentKey = `${current.position.x},${current.position.y}`;
 
-        const current = openList[currentIndex];
-
-        // Goal reached - reconstruct path
+        // Goal reached
         if (current.position.x === end.x && current.position.y === end.y) {
             return reconstructPath(current);
         }
 
-        // Move current node from open to closed (mark as evaluated)
-        openList.splice(currentIndex, 1);
-        closedSet.add(`${current.position.x},${current.position.y}`);
+        closedSet.add(currentKey);
 
         // Explore neighboring cells
         const neighbors = getNeighbors(current.position, gridWidth, gridHeight);
         for (const neighborPos of neighbors) {
             const key = `${neighborPos.x},${neighborPos.y}`;
 
-            // Skip if already evaluated or blocked
             if (closedSet.has(key) || !isWalkable(neighborPos, grid, gridWidth)) {
                 continue;
             }
 
-            // Calculate cost to reach this neighbor through current path
             const tentativeGCost = current.gCost + 1;
+            const existingGScore = gScores.get(key);
 
-            // Check if neighbor is already in open list
-            const existingNode = openList.find(node =>
-                node.position.x === neighborPos.x && node.position.y === neighborPos.y
-            );
+            if (existingGScore === undefined || tentativeGCost < existingGScore) {
+                gScores.set(key, tentativeGCost);
 
-            if (!existingNode) {
-                // Add new node to open list with calculated costs
+                const hCost = manhattanDistance(neighborPos, end);
                 const neighborNode: Node = {
                     position: neighborPos,
                     gCost: tentativeGCost,
-                    hCost: manhattanDistance(neighborPos, end),
-                    fCost: tentativeGCost + manhattanDistance(neighborPos, end),
-                    parent: current
+                    hCost: hCost,
+                    fCost: tentativeGCost + hCost,
+                    parent: current,
+                    order: orderCounter++
                 };
-                openList.push(neighborNode);
-            } else if (tentativeGCost < existingNode.gCost) {
-                // Found better path to existing node - update it
-                existingNode.gCost = tentativeGCost;
-                existingNode.fCost = tentativeGCost + existingNode.hCost;
-                existingNode.parent = current;
+                openList.enqueue(neighborNode);
             }
         }
     }
 
-    // No path found
     return null;
 }

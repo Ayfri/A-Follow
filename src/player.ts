@@ -8,6 +8,7 @@ export class Player {
 	private speed: number = 5; // cells per second
 	private lastMoveTime: number = 0;
 	private path: Position[] = [];
+	private currentPathIndex: number = 0; // Track position in path without modifying it
 
 	constructor(speed: number = 5) {
 		this.speed = speed;
@@ -18,6 +19,7 @@ export class Player {
 		this.y = Math.floor(grid.height / 2);
 		this.lastMoveTime = 0;
 		this.path = [];
+		this.currentPathIndex = 0;
 	}
 
 	getPosition(): Position {
@@ -26,19 +28,23 @@ export class Player {
 
 	setPath(newPath: Position[]): void {
 		this.path = newPath;
+		this.currentPathIndex = 0; // Reset to beginning of new path
 	}
 
 	update(p: p5): void {
-		// Move along path
-		if (this.path.length > 1) {
+		// Move along path using index instead of modifying the path
+		if (this.path.length > 0 && this.currentPathIndex < this.path.length - 1) {
 			const now = p.millis();
 			const timeSinceLastMove = now - this.lastMoveTime;
 			const moveInterval = 1000 / this.speed; // milliseconds per cell
 
 			if (timeSinceLastMove >= moveInterval) {
 				// Move to next cell in path
-				this.x = this.path[1].x;
-				this.y = this.path[1].y;
+				this.currentPathIndex++;
+				if (this.currentPathIndex < this.path.length) {
+					this.x = this.path[this.currentPathIndex].x;
+					this.y = this.path[this.currentPathIndex].y;
+				}
 				this.lastMoveTime = now;
 			}
 		} else {

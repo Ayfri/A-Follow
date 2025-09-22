@@ -17,6 +17,11 @@ let overlay: Overlay;
 
 let mouseXCell = -1;
 let mouseYCell = -1;
+let lastMouseXCell = -1;
+let lastMouseYCell = -1;
+let needsPathRecalculation = true;
+let lastSuccessfulPath: Position[] = [];
+let lastValidTarget = { x: -1, y: -1 };
 
 const sketch = (p: p5) => {
 	p.setup = async () => {
@@ -40,12 +45,71 @@ const sketch = (p: p5) => {
 		// Draw active cells (walls) first
 		grid.drawActiveCells(p, currentTheme.activeCell);
 		
-		// Highlight selected path
-		p.fill(currentTheme.path);
-		for (const pos of selectedPath) {
-			const pixelPos = grid.getPixelFromCell(pos.x, pos.y);
-			const cellSize = grid.getCellSize();
-			p.rect(pixelPos.x, pixelPos.y, cellSize, cellSize);
+		// Check if grid has changed
+		if (drawingSystem.hasGridChanged()) {
+			needsPathRecalculation = true;
+			drawingSystem.resetGridChanged();
+		}
+		
+		// Only recalculate path if target (mouse) changed or grid changed
+		const playerPos = player.getPosition();
+		const mousePositionChanged = mouseXCell !== lastMouseXCell || mouseYCell !== lastMouseYCell;
+		
+		if (needsPathRecalculation || mousePositionChanged) {
+			
+			const newSelectedPath = aStar(
+				playerPos,
+				{ x: mouseXCell, y: mouseYCell },
+				grid.getRawData(),
+				grid.width,
+				grid.height
+			);
+
+			if (newSelectedPath === null) {
+				// If no path found but we had a valid path before to the same target, keep it
+				if (lastValidTarget.x === mouseXCell && lastValidTarget.y === mouseYCell && lastSuccessfulPath.length > 0) {
+					// Keep the last successful path
+					selectedPath = lastSuccessfulPath;
+				} else {
+					selectedPath = [];
+					player.setPath([]);
+				}
+			} else {
+				selectedPath = newSelectedPath;
+				player.setPath(newSelectedPath);
+				// Store this successful path and target
+				lastSuccessfulPath = [...newSelectedPath];
+				lastValidTarget = { x: mouseXCell, y: mouseYCell };
+			}
+
+			// Update tracking variables
+			lastMouseXCell = mouseXCell;
+			lastMouseYCell = mouseYCell;
+			needsPathRecalculation = false;
+		}
+		
+		// Highlight selected path (show remaining path from player's current position)
+		if (selectedPath.length > 0) {
+			p.fill(currentTheme.path);
+			p.noStroke();
+			const playerPos = player.getPosition();
+			
+			// Find player's current position in the path and show the rest
+			let startIndex = 0;
+			for (let i = 0; i < selectedPath.length; i++) {
+				if (selectedPath[i].x === playerPos.x && selectedPath[i].y === playerPos.y) {
+					startIndex = i + 1; // Start from next position
+					break;
+				}
+			}
+			
+			// Draw the remaining path
+			for (let i = startIndex; i < selectedPath.length; i++) {
+				const pos = selectedPath[i];
+				const pixelPos = grid.getPixelFromCell(pos.x, pos.y);
+				const cellSize = grid.getCellSize();
+				p.rect(pixelPos.x, pixelPos.y, cellSize, cellSize);
+			}
 		}
 
 		// Draw grid lines
@@ -53,23 +117,6 @@ const sketch = (p: p5) => {
 
 		// Draw player last (on top of everything)
 		player.draw(p, grid, currentTheme.player);
-
-		// Recalculate path every frame
-		const newSelectedPath = aStar(
-			player.getPosition(),
-			{ x: mouseXCell, y: mouseYCell },
-			grid.getRawData(),
-			grid.width,
-			grid.height
-		);
-
-		if (newSelectedPath === null) {
-			selectedPath = [];
-			player.setPath([]);
-		} else {
-			selectedPath = newSelectedPath;
-			player.setPath(newSelectedPath);
-		}
 
 		// Update player movement
 		player.update(p);
@@ -106,6 +153,7 @@ const sketch = (p: p5) => {
 		p.resizeCanvas(p.windowWidth, p.windowHeight);
 		grid.init(p.width, p.height);
 		player.init(grid);
+		needsPathRecalculation = true;
 	};
 };
 

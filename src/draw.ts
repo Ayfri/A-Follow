@@ -9,9 +9,18 @@ export class DrawingSystem {
 	private lockedAxis: 'horizontal' | 'vertical' | null = null;
 	private isDragging = false;
 	private grid: Grid;
+	private hasChangedGrid = false;
 
 	constructor(grid: Grid) {
 		this.grid = grid;
+	}
+
+	hasGridChanged(): boolean {
+		return this.hasChangedGrid;
+	}
+
+	resetGridChanged(): void {
+		this.hasChangedGrid = false;
 	}
 
 	// Function to draw a line between two cells using Bresenham's algorithm
@@ -91,8 +100,10 @@ export class DrawingSystem {
 		// Draw the initial cell
 		if (p.mouseButton.left) {
 			this.grid.setCell(cell.x, cell.y, 1); // Draw wall
+			this.hasChangedGrid = true;
 		} else if (p.mouseButton.right) {
 			this.grid.setCell(cell.x, cell.y, 0); // Erase wall
+			this.hasChangedGrid = true;
 		}
 	}
 
@@ -121,8 +132,10 @@ export class DrawingSystem {
 			
 			if (p.mouseButton.left) {
 				this.drawLineBetweenCells(this.prevMouseXCell, this.prevMouseYCell, cell.x, cell.y, 1); // Draw wall
+				this.hasChangedGrid = true;
 			} else if (p.mouseButton.right) {
 				this.drawLineBetweenCells(this.prevMouseXCell, this.prevMouseYCell, cell.x, cell.y, 0); // Erase wall
+				this.hasChangedGrid = true;
 			}
 		}
 		
