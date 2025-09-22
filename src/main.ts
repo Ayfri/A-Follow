@@ -1,6 +1,7 @@
 import { aStar, type Position } from './path';
 import { Grid } from './grid';
 import { Player } from './player';
+import { Overlay } from './overlay';
 import './style.css';
 import p5 from 'p5';
 
@@ -8,6 +9,7 @@ const grid = new Grid(20);
 const player = new Player(5);
 
 let selectedPath: Position[] = [];
+let overlay: Overlay;
 
 let mouseXCell = -1;
 let mouseYCell = -1;
@@ -19,6 +21,10 @@ const sketch = (p: p5) => {
 
 		grid.init(p.width, p.height);
 		player.init(grid);
+
+		// Create UI overlay
+		overlay = new Overlay(p, player);
+		overlay.init();
 
 		document.addEventListener('contextmenu', event => event.preventDefault());
 	};
