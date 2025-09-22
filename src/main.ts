@@ -2,11 +2,13 @@ import { aStar, type Position } from './path';
 import { Grid } from './grid';
 import { Player } from './player';
 import { Overlay } from './overlay';
+import { Theme } from './Theme';
 import './style.css';
 import p5 from 'p5';
 
 const grid = new Grid(20);
 const player = new Player(5);
+const theme = new Theme();
 
 let selectedPath: Position[] = [];
 let overlay: Overlay;
@@ -23,23 +25,24 @@ const sketch = (p: p5) => {
 		player.init(grid);
 
 		// Create UI overlay
-		overlay = new Overlay(p, player, grid);
+		overlay = new Overlay(p, player, grid, theme);
 		overlay.init();
 
 		document.addEventListener('contextmenu', event => event.preventDefault());
 	};
 
 	p.draw = async () => {
-		p.background(0);
+		const currentTheme = theme.getTheme();
+		p.background(currentTheme.background);
 		
 		// Draw grid
-		grid.draw(p);
+		grid.draw(p, currentTheme.activeCell, currentTheme.grid);
 
 		// Draw player
-		player.draw(p, grid);
+		player.draw(p, grid, currentTheme.player);
 		
 		// Highlight selected path
-		p.fill(0, 255, 0, 150);
+		p.fill(currentTheme.path);
 		for (const pos of selectedPath) {
 			const pixelPos = grid.getPixelFromCell(pos.x, pos.y);
 			const cellSize = grid.getCellSize();

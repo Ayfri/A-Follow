@@ -55,10 +55,10 @@ export class Grid {
 		};
 	}
 
-	draw(p: p5): void {
+	draw(p: p5, activeCellColor?: string, gridColor?: string): void {
 		// Draw grid borders
 		p.noFill();
-		p.stroke(50);
+		p.stroke(gridColor || '#323232');
 		for (let x = 0; x < this.width; x++) {
 			for (let y = 0; y < this.height; y++) {
 				p.rect(x * this.cellSize, y * this.cellSize, this.cellSize, this.cellSize);
@@ -66,7 +66,7 @@ export class Grid {
 		}
 
 		// Draw active cells (walls)
-		p.fill(0, 0, 255, 150);
+		p.fill(activeCellColor || '#0000ff');
 		p.noStroke();
 		for (let x = 0; x < this.width; x++) {
 			for (let y = 0; y < this.height; y++) {

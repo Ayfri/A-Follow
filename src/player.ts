@@ -46,8 +46,8 @@ export class Player {
 		}
 	}
 
-	draw(p: p5, grid: Grid): void {
-		p.fill(255);
+	draw(p: p5, grid: Grid, playerColor?: string): void {
+		p.fill(playerColor || '#ffffff');
 		p.noStroke();
 		const centerPos = grid.getCenterPixelFromCell(this.x, this.y);
 		const cellSize = grid.getCellSize();
