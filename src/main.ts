@@ -46,6 +46,8 @@ const sketch = (p: p5) => {
 		initGrid();
 		xPosition = Math.floor(gridWidth / 2);
 		yPosition = Math.floor(gridHeight / 2);
+
+		document.addEventListener('contextmenu', event => event.preventDefault());
 	};
 
 	p.draw = async () => {
