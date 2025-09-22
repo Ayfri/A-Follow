@@ -9,6 +9,7 @@ export interface SliderConfig {
 	step?: number;
 	onChange?: (value: number) => void;
 	storageKey?: string; // Optional key for localStorage saving
+	valueFormatter?: (value: number) => string; // Optional function to format the displayed value
 }
 
 export class Slider {
@@ -39,7 +40,8 @@ export class Slider {
 	}
 
 	private createLabel(): void {
-		const labelText = `${this.config.label}: ${this.config.defaultValue}`;
+		const displayValue = this.config.valueFormatter ? this.config.valueFormatter(this.config.defaultValue) : this.config.defaultValue.toString();
+		const labelText = `${this.config.label}: ${displayValue}`;
 		this.label = this.p.createP(labelText);
 		this.label.parent(this.container);
 		this.label.style('margin', '0 0 8px 0');
@@ -80,7 +82,8 @@ export class Slider {
 	}
 
 	private updateLabel(value: number): void {
-		this.label.html(`${this.config.label}: ${value}`);
+		const displayValue = this.config.valueFormatter ? this.config.valueFormatter(value) : value.toString();
+		this.label.html(`${this.config.label}: ${displayValue}`);
 	}
 
 	getValue(): number {

@@ -79,11 +79,18 @@ export class Overlay {
 		this.speedSlider = new Slider(this.p, {
 			label: 'Speed',
 			min: 1,
-			max: 40,
-			defaultValue: this.player.getSpeed(),
+			max: 100,
+			defaultValue: Math.round(Math.log(this.player.getSpeed()) / Math.log(100) * 99 + 1), // Convert linear speed to log scale (1-100 range)
 			step: 1,
-			storageKey: 'player-speed',
-			onChange: (speed: number) => {
+			storageKey: 'player-speed-log',
+			valueFormatter: (sliderValue: number) => {
+				const speed = Math.pow(100, (sliderValue - 1) / 99);
+				return speed.toFixed(1);
+			},
+			onChange: (sliderValue: number) => {
+				// Convert logarithmic slider value to linear speed
+				// sliderValue from 1-100 maps to speed from 1 to 100
+				const speed = Math.pow(100, (sliderValue - 1) / 99);
 				this.player.setSpeed(speed);
 			}
 		});
@@ -93,8 +100,8 @@ export class Overlay {
 	private createGridSizeControls(): void {
 		this.gridSizeSlider = new Slider(this.p, {
 			label: 'Grid Size',
-			min: 10,
-			max: 50,
+			min: 5,
+			max: 60,
 			defaultValue: this.grid.getCellSize(),
 			step: 2,
 			storageKey: 'grid-size',
