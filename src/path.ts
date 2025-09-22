@@ -141,26 +141,7 @@ function generateStraightHVPath(start: Position, end: Position): Position[] {
     return path;
 }
 
-/** Gets accessible neighboring positions (4-directional) */
-function getNeighbors(pos: Position, gridWidth: number, gridHeight: number): Position[] {
-    const neighbors: Position[] = [];
-    const directions = [
-        { x: 0, y: -1 },
-        { x: 1, y: 0 },
-        { x: 0, y: 1 },
-        { x: -1, y: 0 }
-    ];
-
-    for (const dir of directions) {
-        const newPos = { x: pos.x + dir.x, y: pos.y + dir.y };
-        if (newPos.x >= 0 && newPos.x < gridWidth &&
-            newPos.y >= 0 && newPos.y < gridHeight) {
-            neighbors.push(newPos);
-        }
-    }
-
-    return neighbors;
-}
+// getNeighbors removed: we inline neighbor iteration in aStar to avoid allocations
 
 /** Checks if a position is walkable (not an obstacle) */
 function isWalkable(pos: Position, grid: number[][], gridWidth: number): boolean {
@@ -205,9 +186,16 @@ export function aStar(
         return generateStraightHVPath(start, end);
     }
 
+    // Performance-oriented data structures
     const openList = new PriorityQueue();
-    const closedSet = new Set<string>();
-    const gScores = new Map<string, number>();
+    // Closed set as a typed array (0 = not closed, 1 = closed)
+    const closed = new Uint8Array(gridWidth * gridHeight);
+    // gScores as a typed array initialized to +Infinity
+    const gScores = new Float32Array(gridWidth * gridHeight);
+    gScores.fill(Number.POSITIVE_INFINITY);
+
+    // Helper to convert (x,y) -> linear index
+    const idx = (x: number, y: number) => y * gridWidth + x;
     let orderCounter = 0; // for deterministic tie-breaking
 
     // Initialize with start node
@@ -220,42 +208,50 @@ export function aStar(
         order: orderCounter++
     };
 
-    const startKey = `${start.x},${start.y}`;
     openList.enqueue(startNode);
-    gScores.set(startKey, 0);
+    gScores[idx(start.x, start.y)] = 0;
 
     // Main A* loop
     while (!openList.isEmpty()) {
         const current = openList.dequeue()!;
-        const currentKey = `${current.position.x},${current.position.y}`;
+        const cx = current.position.x;
+        const cy = current.position.y;
+        const currentIndex = idx(cx, cy);
 
         // Goal reached
-        if (current.position.x === end.x && current.position.y === end.y) {
+        if (cx === end.x && cy === end.y) {
             return reconstructPath(current);
         }
 
-        closedSet.add(currentKey);
+        // Mark current as closed
+        closed[currentIndex] = 1;
 
-        // Explore neighboring cells
-        const neighbors = getNeighbors(current.position, gridWidth, gridHeight);
-        for (const neighborPos of neighbors) {
-            const key = `${neighborPos.x},${neighborPos.y}`;
+        // Explore neighboring cells (inline to avoid allocations)
+        // Directions: up, right, down, left
+        const dirsX = [0, 1, 0, -1];
+        const dirsY = [-1, 0, 1, 0];
 
-            if (closedSet.has(key) || !isWalkable(neighborPos, grid, gridWidth)) {
-                continue;
-            }
+        for (let i = 0; i < 4; i++) {
+            const nx = cx + dirsX[i];
+            const ny = cy + dirsY[i];
+
+            // Bounds check
+            if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight) continue;
+            const nIndex = idx(nx, ny);
+
+            // Closed or not walkable
+            if (closed[nIndex] !== 0 || grid[ny][nx] !== 0) continue;
 
             const tentativeGCost = current.gCost + 1;
-            const existingGScore = gScores.get(key);
+            const existingG = gScores[nIndex];
+            if (tentativeGCost < existingG) {
+                gScores[nIndex] = tentativeGCost;
 
-            if (existingGScore === undefined || tentativeGCost < existingGScore) {
-                gScores.set(key, tentativeGCost);
-
-                const hCost = manhattanDistance(neighborPos, end);
+                const hCost = Math.abs(nx - end.x) + Math.abs(ny - end.y);
                 const neighborNode: Node = {
-                    position: neighborPos,
+                    position: { x: nx, y: ny },
                     gCost: tentativeGCost,
-                    hCost: hCost,
+                    hCost,
                     fCost: tentativeGCost + hCost,
                     parent: current,
                     order: orderCounter++
