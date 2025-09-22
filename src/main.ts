@@ -1,24 +1,66 @@
 import './style.css';
 import p5 from 'p5';
 
-let xPosition = 0;
-let yPosition = 0;
+type GridCell = {
+	x: number;
+	y: number;
+	state: number; // 0 for inactive, 1 for active
+};
+let gridSize = 20; // in pixels
+let gridWidth = 0; // in cells
+let gridHeight = 0; // in cells
+let grid: GridCell[] = []; // array to hold grid cell positions
+
+
+let xPosition = 0; // in cells
+let yPosition = 0; // in cells
 
 const sketch = (p: p5) => {
 	p.setup = async () => {
 		p.createCanvas(p.windowWidth, p.windowHeight);
 		p.frameRate(60);
-		xPosition = p.random(p.width);
-		yPosition = p.random(p.height);
+
+		gridWidth = Math.floor(p.width / gridSize);
+		gridHeight = Math.floor(p.height / gridSize);
+
+		for (let x = 0; x < p.width; x += gridSize) {
+			for (let y = 0; y < p.height; y += gridSize) {
+				grid.push({ x: x, y: y, state: 0 }); // Initialize all cells as inactive
+			}
+		}
+		xPosition = Math.floor(gridWidth / 2);
+		yPosition = Math.floor(gridHeight / 2);
 	};
 
 	p.draw = async () => {
 		p.background(0);
-		p.ellipse(xPosition, yPosition, 50, 50);
+		
+		// Draw grid borders
+		p.noFill();
+		p.stroke(50);
+		for (let i = 0; i < grid.length; i++) {
+			p.rect(grid[i].x, grid[i].y, gridSize, gridSize);
+		}
+
+		// Draw moving ellipse
+		p.fill(255);
+		p.noStroke();
+		p.ellipse(xPosition * gridSize + gridSize / 2, yPosition * gridSize + gridSize / 2, gridSize, gridSize);
 	};
 
 	p.windowResized = () => {
 		p.resizeCanvas(p.windowWidth, p.windowHeight);
+
+		gridWidth = Math.floor(p.width / gridSize);
+		gridHeight = Math.floor(p.height / gridSize);
+		grid = [];
+		for (let x = 0; x < p.width; x += gridSize) {
+			for (let y = 0; y < p.height; y += gridSize) {
+				grid.push({ x: x, y: y, state: 0 }); // Initialize all cells as inactive
+			}
+		}
+		xPosition = Math.floor(gridWidth / 2);
+		yPosition = Math.floor(gridHeight / 2);
 	};
 };
 
