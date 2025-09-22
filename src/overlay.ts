@@ -1,21 +1,26 @@
 import type p5 from 'p5';
 import type { Player } from './player';
+import type { Grid } from './grid';
 import { Slider } from './inputs/Slider';
 
 export class Overlay {
 	private speedSlider!: Slider;
+	private gridSizeSlider!: Slider;
 	private container!: p5.Element;
 	private p: p5;
 	private player: Player;
+	private grid: Grid;
 
-	constructor(p: p5, player: Player) {
+	constructor(p: p5, player: Player, grid: Grid) {
 		this.p = p;
 		this.player = player;
+		this.grid = grid;
 	}
 
 	init(): void {
 		this.createContainer();
 		this.createSpeedControls();
+		this.createGridSizeControls();
 	}
 
 	private createContainer(): void {
@@ -43,12 +48,25 @@ export class Overlay {
 		this.speedSlider.init(this.container);
 	}
 
+	private createGridSizeControls(): void {
+		this.gridSizeSlider = new Slider(this.p, {
+			label: 'Grid Size',
+			min: 10,
+			max: 50,
+			defaultValue: this.grid.getCellSize(),
+			step: 2,
+			onChange: (size: number) => {
+				this.grid.setCellSize(size);
+				this.grid.init(this.p.width, this.p.height);
+				this.player.init(this.grid);
+			}
+		});
+		this.gridSizeSlider.init(this.container);
+	}
+
 	destroy(): void {
-		if (this.speedSlider) {
-			this.speedSlider.destroy();
-		}
-		if (this.container) {
-			this.container.remove();
-		}
+        this.speedSlider?.destroy();
+        this.gridSizeSlider?.destroy();
+        this.container?.remove();
 	}
 }

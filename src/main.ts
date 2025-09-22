@@ -23,7 +23,7 @@ const sketch = (p: p5) => {
 		player.init(grid);
 
 		// Create UI overlay
-		overlay = new Overlay(p, player);
+		overlay = new Overlay(p, player, grid);
 		overlay.init();
 
 		document.addEventListener('contextmenu', event => event.preventDefault());

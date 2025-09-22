@@ -85,4 +85,8 @@ export class Grid {
 	getCellSize(): number {
 		return this.cellSize;
 	}
+
+	setCellSize(size: number): void {
+		this.cellSize = size;
+	}
 }
