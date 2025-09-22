@@ -7,6 +7,11 @@ export class Grid {
 	public height: number = 0; // in cells
 	private isDirty: boolean = true;
 	private activeCells: { x: number; y: number }[] = [];
+	// Offscreen layer to batch draw active cells efficiently
+	private cellsLayer?: p5.Graphics;
+	private layerDirty: boolean = true;
+	private cachedActiveColor?: string;
+	private cachedLayerSize?: { w: number; h: number };
 
 	constructor(cellSize: number = 20) {
 		this.cellSize = cellSize;
@@ -41,7 +46,8 @@ export class Grid {
 	}
 
 	private markDirty(): void {
-		this.isDirty = true;
+		this.isDirty = true;      // activeCells list needs recompute
+		this.layerDirty = true;   // offscreen layer needs redraw
 	}
 
 	private updateActiveCells(): void {
@@ -90,20 +96,51 @@ export class Grid {
 
 	drawActiveCells(p: p5, activeCellColor?: string): void {
 		this.updateActiveCells();
-		
-		// Only draw visible active cells
-		const visible = this.getVisibleCells(p.width, p.height);
-		
-		p.fill(activeCellColor || '#0000ff');
-		p.noStroke();
-		
-		// Use batching by drawing all rectangles at once
-		for (const cell of this.activeCells) {
-			if (cell.x >= visible.minX && cell.x <= visible.maxX && 
-				cell.y >= visible.minY && cell.y <= visible.maxY) {
-				p.rect(cell.x * this.cellSize, cell.y * this.cellSize, this.cellSize, this.cellSize);
-			}
+
+		const color = activeCellColor || '#0000ff';
+
+		// Ensure offscreen layer exists and matches canvas size
+		const needNewLayer = !this.cellsLayer ||
+			!this.cachedLayerSize ||
+			this.cachedLayerSize.w !== p.width ||
+			this.cachedLayerSize.h !== p.height;
+
+		if (needNewLayer) {
+			this.cellsLayer = p.createGraphics(p.width, p.height);
+			this.cachedLayerSize = { w: p.width, h: p.height };
+			this.layerDirty = true; // force redraw on new layer
 		}
+
+		// Redraw offscreen layer only when necessary (grid changed, color changed, or layer recreated)
+		if (this.layerDirty || this.cachedActiveColor !== color) {
+			const g = this.cellsLayer!;
+			// Clear layer
+			// Use Canvas2D API to batch rects into a single fill for performance
+			const ctx = (g as any).drawingContext as CanvasRenderingContext2D;
+			ctx.clearRect(0, 0, g.width, g.height);
+			ctx.fillStyle = color;
+			ctx.beginPath();
+
+			const visible = this.getVisibleCells(p.width, p.height);
+			const size = this.cellSize;
+
+			for (const cell of this.activeCells) {
+				if (
+					cell.x >= visible.minX && cell.x <= visible.maxX &&
+					cell.y >= visible.minY && cell.y <= visible.maxY
+				) {
+					ctx.rect(cell.x * size, cell.y * size, size, size);
+				}
+			}
+
+			ctx.fill();
+
+			this.cachedActiveColor = color;
+			this.layerDirty = false;
+		}
+
+		// Draw the pre-rendered layer in a single call
+		p.image(this.cellsLayer!, 0, 0);
 	}
 
 	drawGrid(p: p5, gridColor?: string): void {
@@ -141,6 +178,7 @@ export class Grid {
 
 	setCellSize(size: number): void {
 		this.cellSize = size;
+		this.markDirty(); // geometry changed, require redraw
 	}
 
 	generateRandomMaze(): void {
