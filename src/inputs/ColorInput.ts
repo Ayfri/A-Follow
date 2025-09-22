@@ -1,9 +1,11 @@
 import type p5 from 'p5';
+import { StorageManager } from '../StorageManager';
 
 export interface ColorConfig {
 	label: string;
 	defaultValue: string;
 	onChange?: (color: string) => void;
+	storageKey?: string; // Optional key for localStorage saving
 }
 
 export class ColorInput {
@@ -22,6 +24,7 @@ export class ColorInput {
 		this.createContainer(parent);
 		this.createLabel();
 		this.createColorInput();
+		this.loadFromStorage();
 	}
 
 	private createContainer(parent?: p5.Element): void {
@@ -50,18 +53,33 @@ export class ColorInput {
         this.colorInput.style('padding', '0');
         this.colorInput.style('background', 'none');
 
-		// Ensure the default value is set with a small delay
 		queueMicrotask(() => {
 			(this.colorInput as any).value(this.config.defaultValue);
 		});
 
-		// Trigger callback when color changes
 		(this.colorInput as any).input(() => {
 			const color = this.getValue();
+			this.saveToStorage(color);
 			if (this.config.onChange) {
 				this.config.onChange(color);
 			}
 		});
+	}
+
+	private loadFromStorage(): void {
+		if (this.config.storageKey) {
+			const savedValue = StorageManager.load(this.config.storageKey, this.config.defaultValue);
+			this.setValue(savedValue);
+			if (this.config.onChange) {
+				this.config.onChange(savedValue);
+			}
+		}
+	}
+
+	private saveToStorage(color: string): void {
+		if (this.config.storageKey) {
+			StorageManager.save(this.config.storageKey, color);
+		}
 	}
 
 	getValue(): string {

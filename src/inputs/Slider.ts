@@ -1,4 +1,5 @@
 import type p5 from 'p5';
+import { StorageManager } from '../StorageManager';
 
 export interface SliderConfig {
 	label: string;
@@ -7,6 +8,7 @@ export interface SliderConfig {
 	defaultValue: number;
 	step?: number;
 	onChange?: (value: number) => void;
+	storageKey?: string; // Optional key for localStorage saving
 }
 
 export class Slider {
@@ -25,6 +27,7 @@ export class Slider {
 		this.createContainer(parent);
 		this.createLabel();
 		this.createSlider();
+		this.loadFromStorage();
 	}
 
 	private createContainer(parent?: p5.Element): void {
@@ -54,14 +57,30 @@ export class Slider {
 		this.slider.parent(this.container);
 		this.slider.style('width', '200px');
 
-		// Update label and trigger callback when slider changes
 		(this.slider as any).input(() => {
 			const value = this.getValue();
 			this.updateLabel(value);
+			this.saveToStorage(value);
 			if (this.config.onChange) {
 				this.config.onChange(value);
 			}
 		});
+	}
+
+	private loadFromStorage(): void {
+		if (this.config.storageKey) {
+			const savedValue = StorageManager.load(this.config.storageKey, this.config.defaultValue);
+			this.setValue(savedValue);
+			if (this.config.onChange) {
+				this.config.onChange(savedValue);
+			}
+		}
+	}
+
+	private saveToStorage(value: number): void {
+		if (this.config.storageKey) {
+			StorageManager.save(this.config.storageKey, value);
+		}
 	}
 
 	private updateLabel(value: number): void {

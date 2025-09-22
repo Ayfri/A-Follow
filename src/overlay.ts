@@ -51,6 +51,7 @@ export class Overlay {
 			max: 40,
 			defaultValue: this.player.getSpeed(),
 			step: 1,
+			storageKey: 'player-speed',
 			onChange: (speed: number) => {
 				this.player.setSpeed(speed);
 			}
@@ -65,6 +66,7 @@ export class Overlay {
 			max: 50,
 			defaultValue: this.grid.getCellSize(),
 			step: 2,
+			storageKey: 'grid-size',
 			onChange: (size: number) => {
 				this.grid.setCellSize(size);
 				this.grid.init(this.p.width, this.p.height);
@@ -75,50 +77,50 @@ export class Overlay {
 	}
 
 	private createColorControls(): void {
-		// Background color
 		this.backgroundColorInput = new ColorInput(this.p, {
 			label: 'Background Color',
 			defaultValue: this.theme.getBackgroundColor(),
+			storageKey: 'background-color',
 			onChange: (color: string) => {
 				this.theme.setBackgroundColor(color);
 			}
 		});
 		this.backgroundColorInput.init(this.container);
 
-		// Active cell color
 		this.activeCellColorInput = new ColorInput(this.p, {
 			label: 'Wall Color',
 			defaultValue: this.theme.getActiveCellColor(),
+			storageKey: 'wall-color',
 			onChange: (color: string) => {
 				this.theme.setActiveCellColor(color);
 			}
 		});
 		this.activeCellColorInput.init(this.container);
 
-		// Path color
 		this.pathColorInput = new ColorInput(this.p, {
 			label: 'Path Color',
 			defaultValue: this.theme.getPathColor(),
+			storageKey: 'path-color',
 			onChange: (color: string) => {
 				this.theme.setPathColor(color);
 			}
 		});
 		this.pathColorInput.init(this.container);
 
-		// Grid color
 		this.gridColorInput = new ColorInput(this.p, {
 			label: 'Grid Color',
 			defaultValue: this.theme.getGridColor(),
+			storageKey: 'grid-color',
 			onChange: (color: string) => {
 				this.theme.setGridColor(color);
 			}
 		});
 		this.gridColorInput.init(this.container);
 
-		// Player color
 		this.playerColorInput = new ColorInput(this.p, {
 			label: 'Player Color',
 			defaultValue: this.theme.getPlayerColor(),
+			storageKey: 'player-color',
 			onChange: (color: string) => {
 				this.theme.setPlayerColor(color);
 			}
