@@ -103,11 +103,29 @@ const sketch = (p: p5) => {
 		mouseYCell = Math.floor(p.mouseY / gridSize);
 	};
 	
+	p.mouseDragged = () => {
+		mouseXCell = Math.floor(p.mouseX / gridSize);
+		mouseYCell = Math.floor(p.mouseY / gridSize);
+		
+		const cellX = Math.floor(p.mouseX / gridSize);
+		const cellY = Math.floor(p.mouseY / gridSize);
+		
+		if (p.mouseButton.left) {
+			setCell(cellX, cellY, 1); // Draw wall
+		} else if (p.mouseButton.right) {
+			setCell(cellX, cellY, 0); // Erase wall
+		}
+	};
+	
 	p.mousePressed = () => {
 		const cellX = Math.floor(p.mouseX / gridSize);
 		const cellY = Math.floor(p.mouseY / gridSize);
-		const currentState = getCell(cellX, cellY);
-		setCell(cellX, cellY, currentState === 0 ? 1 : 0);
+		
+		if (p.mouseButton.left) {
+			setCell(cellX, cellY, 1); // Draw wall
+		} else if (p.mouseButton.right) {
+			setCell(cellX, cellY, 0); // Erase wall
+		}
 	};
 	
 	p.windowResized = () => {
