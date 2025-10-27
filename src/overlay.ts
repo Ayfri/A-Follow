@@ -5,6 +5,7 @@ import { Slider } from './inputs/Slider';
 import { ColorInput } from './inputs/ColorInput';
 import { Button } from './inputs/Button';
 import { Theme } from './Theme';
+import { WorldMapModal } from './WorldMapModal';
 
 export class Overlay {
 	private speedSlider!: Slider;
@@ -17,6 +18,8 @@ export class Overlay {
 	private generateMazeButton!: Button;
 	private generateRandomGridButton!: Button;
 	private randomGridProbabilitySlider!: Slider;
+	private openWorldMapModalButton!: Button;
+	private worldMapModal!: WorldMapModal;
 	private toggleButton!: Button;
 	private container!: p5.Element;
 	private controlsContainer!: p5.Element;
@@ -39,6 +42,7 @@ export class Overlay {
 		this.createGridSizeControls();
 		this.createMazeControls();
 		this.createRandomGridControls();
+		this.createWorldMapModalButton();
 		this.createColorControls();
 	}
 
@@ -206,6 +210,21 @@ export class Overlay {
 		this.updateRandomGridButtonLabel(this.randomGridProbabilitySlider.getValue());
 	}
 
+	private createWorldMapModalButton(): void {
+		// Create modal
+		this.worldMapModal = new WorldMapModal(this.p, this.grid, this.player);
+		this.worldMapModal.init();
+
+		// Create button to open modal
+		this.openWorldMapModalButton = new Button(this.p, {
+			label: 'World Map Settings',
+			onClick: () => {
+				this.worldMapModal.show();
+			}
+		});
+		this.openWorldMapModalButton.init(this.controlsContainer);
+	}
+
 	private updateRandomGridButtonLabel(probability: number): void {
 		// Access the button element directly to update its text
 		const buttonElement = this.generateRandomGridButton.button;
@@ -247,6 +266,8 @@ export class Overlay {
         this.randomGridProbabilitySlider?.destroy();
         this.generateMazeButton?.destroy();
         this.generateRandomGridButton?.destroy();
+        this.openWorldMapModalButton?.destroy();
+        this.worldMapModal?.destroy();
         this.backgroundColorInput?.destroy();
         this.activeCellColorInput?.destroy();
         this.pathColorInput?.destroy();

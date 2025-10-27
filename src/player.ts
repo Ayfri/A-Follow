@@ -26,6 +26,13 @@ export class Player {
 		return { x: this.x, y: this.y };
 	}
 
+	setPosition(x: number, y: number): void {
+		this.x = x;
+		this.y = y;
+		this.path = [];
+		this.currentPathIndex = 0;
+	}
+
 	setPath(newPath: Position[]): void {
 		this.path = newPath;
 		this.currentPathIndex = 0; // Reset to beginning of new path

@@ -1,4 +1,22 @@
 import type p5 from 'p5';
+import { WorldMapGenerator } from './WorldMapGenerator';
+
+// Terrain types as constants
+export const TerrainType = {
+	EMPTY: 0,      // Traversable empty space
+	WALL: 1,       // Wall (old system)
+	ROAD: 2,       // Road (traversable)
+	MOUNTAIN: 3,   // Mountain (non-traversable)
+	RIVER: 4,      // River (non-traversable)
+	PLAIN: 5       // Plain (non-traversable in world map mode)
+} as const;
+
+export interface WorldMapColors {
+	road: string;
+	mountain: string;
+	river: string;
+	plain: string;
+}
 
 export class Grid {
 	private grid: number[][] = [];
@@ -12,6 +30,15 @@ export class Grid {
 	private layerDirty: boolean = true;
 	private cachedActiveColor?: string;
 	private cachedLayerSize?: { w: number; h: number };
+	private worldMapMode: boolean = false;
+	private worldMapColors: WorldMapColors = {
+		road: '#8B7355',      // Brown road
+		mountain: '#4A4A4A',  // Dark gray mountain
+		river: '#4A90E2',     // Blue river
+		plain: '#90C695'      // Green plain
+	};
+	private worldMapLayer?: p5.Graphics;
+	private worldMapLayerDirty: boolean = true;
 
 	constructor(cellSize: number = 20) {
 		this.cellSize = cellSize;
@@ -36,6 +63,35 @@ export class Grid {
 		return this.grid[y][x];
 	}
 
+	// Check if a cell is traversable based on terrain type
+	isCellTraversable(x: number, y: number): boolean {
+		const cell = this.getCell(x, y);
+		if (this.worldMapMode) {
+			// In world map mode, only roads are traversable
+			return cell === TerrainType.ROAD || cell === TerrainType.EMPTY;
+		}
+		// In normal mode, walls block
+		return cell !== TerrainType.WALL && cell !== TerrainType.MOUNTAIN && cell !== TerrainType.RIVER;
+	}
+
+	setWorldMapMode(enabled: boolean): void {
+		this.worldMapMode = enabled;
+		this.markDirty();
+	}
+
+	isWorldMapMode(): boolean {
+		return this.worldMapMode;
+	}
+
+	setWorldMapColors(colors: Partial<WorldMapColors>): void {
+		this.worldMapColors = { ...this.worldMapColors, ...colors };
+		this.markDirty();
+	}
+
+	getWorldMapColors(): WorldMapColors {
+		return { ...this.worldMapColors };
+	}
+
 	setCell(x: number, y: number, value: number): void {
 		if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
 			if (this.grid[y][x] !== value) {
@@ -48,6 +104,7 @@ export class Grid {
 	private markDirty(): void {
 		this.isDirty = true;      // activeCells list needs recompute
 		this.layerDirty = true;   // offscreen layer needs redraw
+		this.worldMapLayerDirty = true; // world map layer needs redraw
 	}
 
 	private updateActiveCells(): void {
@@ -97,6 +154,12 @@ export class Grid {
 	drawActiveCells(p: p5, activeCellColor?: string): void {
 		this.updateActiveCells();
 
+		if (this.worldMapMode) {
+			// Draw world map with different terrain types
+			this.drawWorldMap(p);
+			return;
+		}
+
 		const color = activeCellColor || '#0000ff';
 
 		// Ensure offscreen layer exists and matches canvas size
@@ -141,6 +204,75 @@ export class Grid {
 
 		// Draw the pre-rendered layer in a single call
 		p.image(this.cellsLayer!, 0, 0);
+	}
+
+	private drawWorldMap(p: p5): void {
+		// Use cached layer for performance
+		const needNewLayer =
+			!this.worldMapLayer ||
+			this.worldMapLayer.width !== p.width ||
+			this.worldMapLayer.height !== p.height;
+
+		if (needNewLayer) {
+			this.worldMapLayer = p.createGraphics(p.width, p.height);
+			this.worldMapLayerDirty = true;
+		}
+
+		// Only redraw if something changed
+		if (this.worldMapLayerDirty) {
+			const g = this.worldMapLayer!;
+			const ctx = (g as any).drawingContext as CanvasRenderingContext2D;
+			ctx.clearRect(0, 0, g.width, g.height);
+
+			const visible = this.getVisibleCells(p.width, p.height);
+			const size = this.cellSize;
+
+			// Draw by terrain type using batched rendering
+			const terrainBatches: Map<number, Array<{ x: number; y: number }>> = new Map();
+
+			for (let x = visible.minX; x <= visible.maxX; x++) {
+				for (let y = visible.minY; y <= visible.maxY; y++) {
+					const cellType = this.getCell(x, y);
+					if (cellType === TerrainType.EMPTY || cellType === TerrainType.WALL) continue;
+
+					if (!terrainBatches.has(cellType)) {
+						terrainBatches.set(cellType, []);
+					}
+					terrainBatches.get(cellType)!.push({ x, y });
+				}
+			}
+
+			// Batch render each terrain type
+			terrainBatches.forEach((cells, terrainType) => {
+				let color = '';
+				switch (terrainType) {
+					case TerrainType.ROAD:
+						color = this.worldMapColors.road;
+						break;
+					case TerrainType.MOUNTAIN:
+						color = this.worldMapColors.mountain;
+						break;
+					case TerrainType.RIVER:
+						color = this.worldMapColors.river;
+						break;
+					case TerrainType.PLAIN:
+						color = this.worldMapColors.plain;
+						break;
+				}
+
+				ctx.fillStyle = color;
+				ctx.beginPath();
+				for (const cell of cells) {
+					ctx.rect(cell.x * size, cell.y * size, size, size);
+				}
+				ctx.fill();
+			});
+
+			this.worldMapLayerDirty = false;
+		}
+
+		// Draw the cached layer
+		p.image(this.worldMapLayer!, 0, 0);
 	}
 
 	drawGrid(p: p5, gridColor?: string): void {
@@ -256,5 +388,56 @@ export class Grid {
 		}
 
 		return neighbors;
+	}
+
+	generateWorldMap(): void {
+		// Enable world map mode
+		this.worldMapMode = true;
+
+		// Use the dedicated generator
+		const generator = new WorldMapGenerator(this.width, this.height);
+		this.grid = generator.generate();
+
+		this.markDirty();
+	}
+
+	findNearestRoad(x: number, y: number): { x: number; y: number } | null {
+		// BFS to find nearest road
+		const queue: Array<{ x: number; y: number; dist: number }> = [{ x, y, dist: 0 }];
+		const visited = new Set<string>();
+		visited.add(`${x},${y}`);
+
+		while (queue.length > 0) {
+			const current = queue.shift()!;
+
+			// Check if current position is a road
+			if (this.getCell(current.x, current.y) === TerrainType.ROAD) {
+				return { x: current.x, y: current.y };
+			}
+
+			// Explore neighbors
+			const neighbors = [
+				{ x: current.x + 1, y: current.y },
+				{ x: current.x - 1, y: current.y },
+				{ x: current.x, y: current.y + 1 },
+				{ x: current.x, y: current.y - 1 }
+			];
+
+			for (const neighbor of neighbors) {
+				const key = `${neighbor.x},${neighbor.y}`;
+				if (
+					neighbor.x >= 0 &&
+					neighbor.x < this.width &&
+					neighbor.y >= 0 &&
+					neighbor.y < this.height &&
+					!visited.has(key)
+				) {
+					visited.add(key);
+					queue.push({ ...neighbor, dist: current.dist + 1 });
+				}
+			}
+		}
+
+		return null;
 	}
 }

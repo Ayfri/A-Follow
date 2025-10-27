@@ -1,3 +1,5 @@
+import type { Grid } from './grid';
+
 // A* Pathfinding Algorithm
 
 /** Represents a 2D grid position */
@@ -91,7 +93,7 @@ function manhattanDistance(a: Position, b: Position): number {
 // Using plain Manhattan distance as heuristic for stability
 
 /** Check if a straight horizontal or vertical path is possible */
-function canGoStraightHV(start: Position, end: Position, grid: number[][], gridWidth: number): boolean {
+function canGoStraightHV(start: Position, end: Position, grid: Grid): boolean {
     // Check if it's a horizontal or vertical line
     if (start.x !== end.x && start.y !== end.y) {
         return false; // Not a straight horizontal or vertical line
@@ -102,7 +104,7 @@ function canGoStraightHV(start: Position, end: Position, grid: number[][], gridW
         const minY = Math.min(start.y, end.y);
         const maxY = Math.max(start.y, end.y);
         for (let y = minY; y <= maxY; y++) {
-            if (!isWalkable({x: start.x, y}, grid, gridWidth)) {
+            if (!grid.isCellTraversable(start.x, y)) {
                 return false;
             }
         }
@@ -111,7 +113,7 @@ function canGoStraightHV(start: Position, end: Position, grid: number[][], gridW
         const minX = Math.min(start.x, end.x);
         const maxX = Math.max(start.x, end.x);
         for (let x = minX; x <= maxX; x++) {
-            if (!isWalkable({x, y: start.y}, grid, gridWidth)) {
+            if (!grid.isCellTraversable(x, start.y)) {
                 return false;
             }
         }
@@ -143,12 +145,6 @@ function generateStraightHVPath(start: Position, end: Position): Position[] {
 
 // getNeighbors removed: we inline neighbor iteration in aStar to avoid allocations
 
-/** Checks if a position is walkable (not an obstacle) */
-function isWalkable(pos: Position, grid: number[][], gridWidth: number): boolean {
-    if (pos.x < 0 || pos.x >= gridWidth || pos.y < 0 || pos.y >= grid.length) return false;
-    return grid[pos.y][pos.x] === 0;
-}
-
 /** Reconstructs the path from end node to start */
 function reconstructPath(endNode: Node): Position[] {
     const path: Position[] = [];
@@ -169,20 +165,19 @@ function reconstructPath(endNode: Node): Position[] {
  * 4. Calculate costs with tie-breaking that prefers straight paths
  * @param start Starting position
  * @param end Target position
- * @param grid Grid array with cell states
- * @param gridWidth Width of the grid in cells
- * @param gridHeight Height of the grid in cells
+ * @param grid Grid object with traversability checking
  * @returns Array of positions forming the path, or null if no path found
  */
 export function aStar(
     start: Position,
     end: Position,
-    grid: number[][],
-    gridWidth: number,
-    gridHeight: number
+    grid: Grid
 ): Position[] | null {
+    const gridWidth = grid.width;
+    const gridHeight = grid.height;
+
     // Quick check: if straight horizontal/vertical line is possible, use it
-    if (canGoStraightHV(start, end, grid, gridWidth)) {
+    if (canGoStraightHV(start, end, grid)) {
         return generateStraightHVPath(start, end);
     }
 
@@ -239,8 +234,8 @@ export function aStar(
             if (nx < 0 || nx >= gridWidth || ny < 0 || ny >= gridHeight) continue;
             const nIndex = idx(nx, ny);
 
-            // Closed or not walkable
-            if (closed[nIndex] !== 0 || grid[ny][nx] !== 0) continue;
+            // Closed or not traversable
+            if (closed[nIndex] !== 0 || !grid.isCellTraversable(nx, ny)) continue;
 
             const tentativeGCost = current.gCost + 1;
             const existingG = gScores[nIndex];

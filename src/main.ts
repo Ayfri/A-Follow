@@ -60,9 +60,7 @@ const sketch = (p: p5) => {
 			const newSelectedPath = aStar(
 				playerPos,
 				{ x: mouseXCell, y: mouseYCell },
-				grid.getRawData(),
-				grid.width,
-				grid.height
+				grid
 			);
 
 			if (newSelectedPath === null) {
