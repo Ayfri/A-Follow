@@ -4,6 +4,7 @@ import type { Grid } from './grid';
 import { Slider } from './inputs/Slider';
 import { ColorInput } from './inputs/ColorInput';
 import { Button } from './inputs/Button';
+import { Checkbox } from './inputs/Checkbox';
 import { Theme } from './Theme';
 import { WorldMapModal } from './WorldMapModal';
 
@@ -19,7 +20,9 @@ export class Overlay {
 	private generateRandomGridButton!: Button;
 	private randomGridProbabilitySlider!: Slider;
 	private openWorldMapModalButton!: Button;
-	private worldMapModal!: WorldMapModal;
+	public worldMapModal!: WorldMapModal;
+	private showGridColorCheckbox!: Checkbox;
+	private snapToNearestCheckbox!: Checkbox;
 	private toggleButton!: Button;
 	private container!: p5.Element;
 	private controlsContainer!: p5.Element;
@@ -28,6 +31,8 @@ export class Overlay {
 	private grid: Grid;
 	private theme: Theme;
 	private isMinimized: boolean = false;
+	public showGridColor: boolean = true;
+	public snapToNearest: boolean = false;
 
 	constructor(p: p5, player: Player, grid: Grid, theme: Theme) {
 		this.p = p;
@@ -40,6 +45,7 @@ export class Overlay {
 		this.createContainer();
 		this.createSpeedControls();
 		this.createGridSizeControls();
+		this.createDisplaySettings();
 		this.createMazeControls();
 		this.createRandomGridControls();
 		this.createWorldMapModalButton();
@@ -101,10 +107,10 @@ export class Overlay {
 	private createGridSizeControls(): void {
 		this.gridSizeSlider = new Slider(this.p, {
 			label: 'Grid Size',
-			min: 5,
+			min: 3,
 			max: 60,
 			defaultValue: this.grid.getCellSize(),
-			step: 2,
+			step: 1,
 			storageKey: 'grid-size',
 			onChange: (size: number) => {
 				this.grid.setCellSize(size);
@@ -113,6 +119,32 @@ export class Overlay {
 			}
 		});
 		this.gridSizeSlider.init(this.controlsContainer);
+	}
+
+	private createDisplaySettings(): void {
+		// Show grid color checkbox
+		this.showGridColorCheckbox = new Checkbox(this.p, {
+			label: 'Show grid color',
+			defaultValue: true,
+			storageKey: 'show-grid-color',
+			onChange: (value: boolean) => {
+				this.showGridColor = value;
+			}
+		});
+		this.showGridColorCheckbox.init(this.controlsContainer);
+		this.showGridColor = this.showGridColorCheckbox.getValue();
+
+		// Snap to nearest traversable tile checkbox
+		this.snapToNearestCheckbox = new Checkbox(this.p, {
+			label: 'Snap to nearest traversable tile',
+			defaultValue: false,
+			storageKey: 'snap-to-nearest-tile',
+			onChange: (value: boolean) => {
+				this.snapToNearest = value;
+			}
+		});
+		this.snapToNearestCheckbox.init(this.controlsContainer);
+		this.snapToNearest = this.snapToNearestCheckbox.getValue();
 	}
 
 	private createColorControls(): void {
@@ -263,6 +295,8 @@ export class Overlay {
 	destroy(): void {
         this.speedSlider?.destroy();
         this.gridSizeSlider?.destroy();
+        this.showGridColorCheckbox?.destroy();
+        this.snapToNearestCheckbox?.destroy();
         this.randomGridProbabilitySlider?.destroy();
         this.generateMazeButton?.destroy();
         this.generateRandomGridButton?.destroy();

@@ -23,6 +23,46 @@ let needsPathRecalculation = true;
 let lastSuccessfulPath: Position[] = [];
 let lastValidTarget = { x: -1, y: -1 };
 
+// BFS to find nearest traversable tile
+function findNearestTraversableTile(x: number, y: number): Position | null {
+	const queue: Array<{ x: number; y: number; dist: number }> = [{ x, y, dist: 0 }];
+	const visited = new Set<string>();
+	visited.add(`${x},${y}`);
+
+	while (queue.length > 0) {
+		const current = queue.shift()!;
+
+		// Check if current position is traversable
+		if (grid.isCellTraversable(current.x, current.y)) {
+			return { x: current.x, y: current.y };
+		}
+
+		// Explore neighbors (4 directions)
+		const neighbors = [
+			{ x: current.x + 1, y: current.y },
+			{ x: current.x - 1, y: current.y },
+			{ x: current.x, y: current.y + 1 },
+			{ x: current.x, y: current.y - 1 }
+		];
+
+		for (const neighbor of neighbors) {
+			const key = `${neighbor.x},${neighbor.y}`;
+			if (
+				neighbor.x >= 0 &&
+				neighbor.x < grid.width &&
+				neighbor.y >= 0 &&
+				neighbor.y < grid.height &&
+				!visited.has(key)
+			) {
+				visited.add(key);
+				queue.push({ ...neighbor, dist: current.dist + 1 });
+			}
+		}
+	}
+
+	return null;
+}
+
 const sketch = (p: p5) => {
 	p.setup = async () => {
 		p.createCanvas(p.windowWidth, p.windowHeight);
@@ -56,16 +96,28 @@ const sketch = (p: p5) => {
 		const mousePositionChanged = mouseXCell !== lastMouseXCell || mouseYCell !== lastMouseYCell;
 		
 		if (needsPathRecalculation || mousePositionChanged) {
+			// Determine target based on snap-to-nearest setting
+			let targetX = mouseXCell;
+			let targetY = mouseYCell;
+			
+			// If snap-to-nearest is enabled and the target is not traversable, find the nearest traversable tile
+			if (overlay.snapToNearest && !grid.isCellTraversable(mouseXCell, mouseYCell)) {
+				const nearestTraversable = findNearestTraversableTile(mouseXCell, mouseYCell);
+				if (nearestTraversable) {
+					targetX = nearestTraversable.x;
+					targetY = nearestTraversable.y;
+				}
+			}
 			
 			const newSelectedPath = aStar(
 				playerPos,
-				{ x: mouseXCell, y: mouseYCell },
+				{ x: targetX, y: targetY },
 				grid
 			);
 
 			if (newSelectedPath === null) {
 				// If no path found but we had a valid path before to the same target, keep it
-				if (lastValidTarget.x === mouseXCell && lastValidTarget.y === mouseYCell && lastSuccessfulPath.length > 0) {
+				if (lastValidTarget.x === targetX && lastValidTarget.y === targetY && lastSuccessfulPath.length > 0) {
 					// Keep the last successful path
 					selectedPath = lastSuccessfulPath;
 				} else {
@@ -77,7 +129,7 @@ const sketch = (p: p5) => {
 				player.setPath(newSelectedPath);
 				// Store this successful path and target
 				lastSuccessfulPath = [...newSelectedPath];
-				lastValidTarget = { x: mouseXCell, y: mouseYCell };
+				lastValidTarget = { x: targetX, y: targetY };
 			}
 
 			// Update tracking variables
@@ -110,8 +162,10 @@ const sketch = (p: p5) => {
 			}
 		}
 
-		// Draw grid lines
-		grid.drawGrid(p, currentTheme.grid);
+		// Draw grid lines (only if show grid color is enabled)
+		if (overlay.showGridColor) {
+			grid.drawGrid(p, currentTheme.grid);
+		}
 
 		// Draw player last (on top of everything)
 		player.draw(p, grid, currentTheme.player);
