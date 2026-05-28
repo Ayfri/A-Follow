@@ -36,12 +36,18 @@ export class Grid {
 	public width: number = 0; // in cells
 	public height: number = 0; // in cells
 	private isDirty: boolean = true;
-	private activeCells: { x: number; y: number }[] = [];
+	private activeCellsFlat: Int16Array = new Int16Array(0);
+	private activeCellCount: number = 0;
 	// Offscreen layer to batch draw active cells efficiently
 	private cellsLayer?: p5.Graphics;
 	private layerDirty: boolean = true;
 	private cachedActiveColor?: string;
 	private cachedLayerSize?: { w: number; h: number };
+	// Offscreen layer for the grid lines (only redrawn on geometry change)
+	private gridLayer?: p5.Graphics;
+	private gridLayerDirty: boolean = true;
+	private cachedGridColor?: string;
+	private cachedGridLayerSize?: { w: number; h: number };
 	private worldMapMode: boolean = false;
 	private worldMapColors: WorldMapColors = {
 		road: '#8B7355',      // Brown road
@@ -73,6 +79,7 @@ export class Grid {
 				this.grid[y][x] = 0;
 			}
 		}
+		this.gridLayerDirty = true;
 		this.markDirty();
 	}
 
@@ -128,14 +135,27 @@ export class Grid {
 	private updateActiveCells(): void {
 		if (!this.isDirty) return;
 
-		this.activeCells = [];
-		for (let x = 0; x < this.width; x++) {
-			for (let y = 0; y < this.height; y++) {
-				if (this.getCell(x, y) === 1) {
-					this.activeCells.push({ x, y });
+		let count = 0;
+		for (let y = 0; y < this.height; y++) {
+			const row = this.grid[y];
+			for (let x = 0; x < this.width; x++) {
+				if (row[x] === 1) count++;
+			}
+		}
+		if (this.activeCellsFlat.length < count * 2) {
+			this.activeCellsFlat = new Int16Array(count * 2);
+		}
+		let idx = 0;
+		for (let y = 0; y < this.height; y++) {
+			const row = this.grid[y];
+			for (let x = 0; x < this.width; x++) {
+				if (row[x] === 1) {
+					this.activeCellsFlat[idx++] = x;
+					this.activeCellsFlat[idx++] = y;
 				}
 			}
 		}
+		this.activeCellCount = count;
 		this.isDirty = false;
 	}
 
@@ -204,12 +224,13 @@ export class Grid {
 			const visible = this.getVisibleCells(p.width, p.height);
 			const size = this.cellSize;
 
-			for (const cell of this.activeCells) {
-				if (
-					cell.x >= visible.minX && cell.x <= visible.maxX &&
-					cell.y >= visible.minY && cell.y <= visible.maxY
-				) {
-					ctx.rect(cell.x * size, cell.y * size, size, size);
+			const flat = this.activeCellsFlat;
+			const len = this.activeCellCount * 2;
+			for (let i = 0; i < len; i += 2) {
+				const cx = flat[i];
+				const cy = flat[i + 1];
+				if (cx >= visible.minX && cx <= visible.maxX && cy >= visible.minY && cy <= visible.maxY) {
+					ctx.rect(cx * size, cy * size, size, size);
 				}
 			}
 
@@ -244,65 +265,36 @@ export class Grid {
 			const visible = this.getVisibleCells(p.width, p.height);
 			const size = this.cellSize;
 
-			// Draw by terrain type using batched rendering
-			const terrainBatches: Map<number, Array<{ x: number; y: number }>> = new Map();
+			// Pre-build color lookup array indexed by TerrainType constant (0–11)
+			const colors: string[] = [
+				'', // EMPTY
+				'', // WALL
+				this.worldMapColors.road,
+				this.worldMapColors.mountain,
+				this.worldMapColors.river,
+				this.worldMapColors.plain,
+				this.worldMapColors.hill    || '#A8D08D',
+				this.worldMapColors.forest  || '#6B8F6E',
+				this.worldMapColors.bridge  || '#DAA520',
+				this.worldMapColors.coast   || '#F4A460',
+				this.worldMapColors.village || '#D2B48C',
+				this.worldMapColors.sand    || '#F5E6D3',
+			];
 
-			for (let x = visible.minX; x <= visible.maxX; x++) {
-				for (let y = visible.minY; y <= visible.maxY; y++) {
-					const cellType = this.getCell(x, y);
-					if (cellType === TerrainType.EMPTY || cellType === TerrainType.WALL) continue;
-
-					if (!terrainBatches.has(cellType)) {
-						terrainBatches.set(cellType, []);
-					}
-					terrainBatches.get(cellType)!.push({ x, y });
-				}
-			}
-
-			// Batch render each terrain type
-			terrainBatches.forEach((cells, terrainType) => {
-				let color = '';
-				switch (terrainType) {
-					case TerrainType.ROAD:
-						color = this.worldMapColors.road;
-						break;
-					case TerrainType.MOUNTAIN:
-						color = this.worldMapColors.mountain;
-						break;
-					case TerrainType.RIVER:
-						color = this.worldMapColors.river;
-						break;
-					case TerrainType.PLAIN:
-						color = this.worldMapColors.plain;
-						break;
-					case TerrainType.HILL:
-						color = this.worldMapColors.hill || '#A8D08D';
-						break;
-					case TerrainType.FOREST:
-						color = this.worldMapColors.forest || '#6B8F6E';
-						break;
-					case TerrainType.BRIDGE:
-						color = this.worldMapColors.bridge || '#DAA520';
-						break;
-					case TerrainType.COAST:
-						color = this.worldMapColors.coast || '#F4A460';
-						break;
-					case TerrainType.VILLAGE:
-						color = this.worldMapColors.village || '#D2B48C';
-						break;
-					case TerrainType.SAND:
-						color = this.worldMapColors.sand || '#F5E6D3';
-						break;
-				}
-				if (!color) return; // Skip if no color defined
-
+			// One pass per terrain type — no allocations, direct grid access
+			for (let t = 2; t < colors.length; t++) {
+				const color = colors[t];
+				if (!color) continue;
 				ctx.fillStyle = color;
 				ctx.beginPath();
-				for (const cell of cells) {
-					ctx.rect(cell.x * size, cell.y * size, size, size);
+				for (let y = visible.minY; y <= visible.maxY; y++) {
+					const row = this.grid[y];
+					for (let x = visible.minX; x <= visible.maxX; x++) {
+						if (row[x] === t) ctx.rect(x * size, y * size, size, size);
+					}
 				}
 				ctx.fill();
-			});
+			}
 
 			this.worldMapLayerDirty = false;
 		}
@@ -312,22 +304,48 @@ export class Grid {
 	}
 
 	drawGrid(p: p5, gridColor?: string): void {
-		const visible = this.getVisibleCells(p.width, p.height);
+		const color = gridColor || '#323232';
 
-		p.noFill();
-		p.stroke(gridColor || '#323232');
+		const needNewLayer =
+			!this.gridLayer ||
+			!this.cachedGridLayerSize ||
+			this.cachedGridLayerSize.w !== p.width ||
+			this.cachedGridLayerSize.h !== p.height;
 
-		// Draw vertical lines
-		for (let x = visible.minX; x <= visible.maxX; x++) {
-			const pixelX = x * this.cellSize;
-			p.line(pixelX, visible.minY * this.cellSize, pixelX, (visible.maxY + 1) * this.cellSize);
+		if (needNewLayer) {
+			this.gridLayer = p.createGraphics(p.width, p.height);
+			this.cachedGridLayerSize = { w: p.width, h: p.height };
+			this.gridLayerDirty = true;
 		}
 
-		// Draw horizontal lines
-		for (let y = visible.minY; y <= visible.maxY; y++) {
-			const pixelY = y * this.cellSize;
-			p.line(visible.minX * this.cellSize, pixelY, (visible.maxX + 1) * this.cellSize, pixelY);
+		if (this.gridLayerDirty || this.cachedGridColor !== color) {
+			const g = this.gridLayer!;
+			const ctx = (g as any).drawingContext as CanvasRenderingContext2D;
+			ctx.clearRect(0, 0, g.width, g.height);
+			ctx.strokeStyle = color;
+			ctx.lineWidth = 1;
+			ctx.beginPath();
+
+			const s = this.cellSize;
+			const maxPx = this.width * s;
+			const maxPy = this.height * s;
+			for (let x = 0; x <= this.width; x++) {
+				const px = x * s;
+				ctx.moveTo(px, 0);
+				ctx.lineTo(px, maxPy);
+			}
+			for (let y = 0; y <= this.height; y++) {
+				const py = y * s;
+				ctx.moveTo(0, py);
+				ctx.lineTo(maxPx, py);
+			}
+			ctx.stroke();
+
+			this.cachedGridColor = color;
+			this.gridLayerDirty = false;
 		}
+
+		p.image(this.gridLayer!, 0, 0);
 	}
 
 	draw(p: p5, activeCellColor?: string, gridColor?: string): void {
@@ -346,7 +364,8 @@ export class Grid {
 
 	setCellSize(size: number): void {
 		this.cellSize = size;
-		this.markDirty(); // geometry changed, require redraw
+		this.gridLayerDirty = true;
+		this.markDirty();
 	}
 
 	generateRandomMaze(): void {
@@ -438,38 +457,30 @@ export class Grid {
 	}
 
 	findNearestRoad(x: number, y: number): { x: number; y: number } | null {
-		// BFS to find nearest road
-		const queue: Array<{ x: number; y: number; dist: number }> = [{ x, y, dist: 0 }];
-		const visited = new Set<string>();
-		visited.add(`${x},${y}`);
+		const W = this.width;
+		const encodeKey = (cx: number, cy: number) => cy * W + cx;
+		const queue: Array<{ x: number; y: number }> = [{ x, y }];
+		const visited = new Set<number>();
+		visited.add(encodeKey(x, y));
 
 		while (queue.length > 0) {
 			const current = queue.shift()!;
 
-			// Check if current position is a road
-			if (this.getCell(current.x, current.y) === TerrainType.ROAD) {
+			if (this.grid[current.y][current.x] === TerrainType.ROAD) {
 				return { x: current.x, y: current.y };
 			}
 
-			// Explore neighbors
-			const neighbors = [
-				{ x: current.x + 1, y: current.y },
-				{ x: current.x - 1, y: current.y },
-				{ x: current.x, y: current.y + 1 },
-				{ x: current.x, y: current.y - 1 }
-			];
-
-			for (const neighbor of neighbors) {
-				const key = `${neighbor.x},${neighbor.y}`;
-				if (
-					neighbor.x >= 0 &&
-					neighbor.x < this.width &&
-					neighbor.y >= 0 &&
-					neighbor.y < this.height &&
-					!visited.has(key)
-				) {
-					visited.add(key);
-					queue.push({ ...neighbor, dist: current.dist + 1 });
+			const dxs = [1, -1, 0, 0];
+			const dys = [0, 0, 1, -1];
+			for (let d = 0; d < 4; d++) {
+				const nx = current.x + dxs[d];
+				const ny = current.y + dys[d];
+				if (nx >= 0 && nx < W && ny >= 0 && ny < this.height) {
+					const k = encodeKey(nx, ny);
+					if (!visited.has(k)) {
+						visited.add(k);
+						queue.push({ x: nx, y: ny });
+					}
 				}
 			}
 		}

@@ -25,37 +25,31 @@ let lastValidTarget = { x: -1, y: -1 };
 
 // BFS to find nearest traversable tile
 function findNearestTraversableTile(x: number, y: number): Position | null {
-	const queue: Array<{ x: number; y: number; dist: number }> = [{ x, y, dist: 0 }];
-	const visited = new Set<string>();
-	visited.add(`${x},${y}`);
+	const W = grid.width;
+	const encodeKey = (cx: number, cy: number) => cy * W + cx;
+	const queue: Array<{ x: number; y: number }> = [{ x, y }];
+	const visited = new Set<number>();
+	visited.add(encodeKey(x, y));
+
+	const dxs = [1, -1, 0, 0];
+	const dys = [0, 0, 1, -1];
 
 	while (queue.length > 0) {
 		const current = queue.shift()!;
 
-		// Check if current position is traversable
 		if (grid.isCellTraversable(current.x, current.y)) {
 			return { x: current.x, y: current.y };
 		}
 
-		// Explore neighbors (4 directions)
-		const neighbors = [
-			{ x: current.x + 1, y: current.y },
-			{ x: current.x - 1, y: current.y },
-			{ x: current.x, y: current.y + 1 },
-			{ x: current.x, y: current.y - 1 }
-		];
-
-		for (const neighbor of neighbors) {
-			const key = `${neighbor.x},${neighbor.y}`;
-			if (
-				neighbor.x >= 0 &&
-				neighbor.x < grid.width &&
-				neighbor.y >= 0 &&
-				neighbor.y < grid.height &&
-				!visited.has(key)
-			) {
-				visited.add(key);
-				queue.push({ ...neighbor, dist: current.dist + 1 });
+		for (let d = 0; d < 4; d++) {
+			const nx = current.x + dxs[d];
+			const ny = current.y + dys[d];
+			if (nx >= 0 && nx < W && ny >= 0 && ny < grid.height) {
+				const k = encodeKey(nx, ny);
+				if (!visited.has(k)) {
+					visited.add(k);
+					queue.push({ x: nx, y: ny });
+				}
 			}
 		}
 	}

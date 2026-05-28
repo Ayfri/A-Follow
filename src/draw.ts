@@ -34,10 +34,11 @@ export class DrawingSystem {
 		let x = x0;
 		let y = y0;
 		
-		const drawnCells = new Set<string>();
+		const drawnCells = new Set<number>();
+		const W = this.grid.width;
 
 		while (true) {
-			const cellKey = `${x},${y}`;
+			const cellKey = y * W + x;
 			if (!drawnCells.has(cellKey)) {
 				this.grid.setCell(x, y, cellValue);
 				drawnCells.add(cellKey);
