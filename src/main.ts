@@ -85,12 +85,6 @@ const sketch = (p: p5) => {
 		// Draw active cells (walls) first
 		grid.drawActiveCells(p, currentTheme.activeCell);
 		
-		// Check if grid has changed
-		if (drawingSystem.hasGridChanged()) {
-			needsPathRecalculation = true;
-			drawingSystem.resetGridChanged();
-		}
-		
 		// Only recalculate path if target (mouse) changed or grid changed
 		const playerPos = player.getPosition();
 		const mousePositionChanged = mouseXCell !== lastMouseXCell || mouseYCell !== lastMouseYCell;
@@ -199,6 +193,12 @@ const sketch = (p: p5) => {
 	
 	p.mouseReleased = () => {
 		drawingSystem.handleMouseReleased();
+		
+		// Recalculate path after drawing stops
+		if (drawingSystem.hasGridChanged()) {
+			needsPathRecalculation = true;
+			drawingSystem.resetGridChanged();
+		}
 	};
 	
 	p.windowResized = () => {

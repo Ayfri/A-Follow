@@ -8,7 +8,13 @@ export const TerrainType = {
 	ROAD: 2,       // Road (traversable)
 	MOUNTAIN: 3,   // Mountain (non-traversable)
 	RIVER: 4,      // River (non-traversable)
-	PLAIN: 5       // Plain (non-traversable in world map mode)
+	PLAIN: 5,      // Plain (non-traversable in world map mode)
+	HILL: 6,       // Hills (gentle terrain)
+	FOREST: 7,     // Forest (dense vegetation)
+	BRIDGE: 8,     // Bridge over water (traversable)
+	COAST: 9,      // Coastline
+	VILLAGE: 10,   // Village (small settlement)
+	SAND: 11       // Sand beach (non-traversable)
 } as const;
 
 export interface WorldMapColors {
@@ -16,6 +22,12 @@ export interface WorldMapColors {
 	mountain: string;
 	river: string;
 	plain: string;
+	hill?: string;
+	forest?: string;
+	bridge?: string;
+	coast?: string;
+	village?: string;
+	sand?: string;
 }
 
 export class Grid {
@@ -35,7 +47,13 @@ export class Grid {
 		road: '#8B7355',      // Brown road
 		mountain: '#4A4A4A',  // Dark gray mountain
 		river: '#4A90E2',     // Blue river
-		plain: '#90C695'      // Green plain
+		plain: '#90C695',     // Green plain
+		hill: '#A8D08D',      // Lighter green hill
+		forest: '#6B8F6E',    // More pronounced green forest
+		bridge: '#DAA520',    // Golden bridge
+		coast: '#F4A460',     // Sandy coast
+		village: '#D2B48C',   // Tan village
+		sand: '#F5E6D3'       // Light sand beach
 	};
 	private worldMapLayer?: p5.Graphics;
 	private worldMapLayerDirty: boolean = true;
@@ -47,7 +65,7 @@ export class Grid {
 	init(canvasWidth: number, canvasHeight: number): void {
 		this.width = Math.floor(canvasWidth / this.cellSize);
 		this.height = Math.floor(canvasHeight / this.cellSize);
-		
+
 		this.grid = [];
 		for (let y = 0; y < this.height; y++) {
 			this.grid[y] = [];
@@ -109,7 +127,7 @@ export class Grid {
 
 	private updateActiveCells(): void {
 		if (!this.isDirty) return;
-		
+
 		this.activeCells = [];
 		for (let x = 0; x < this.width; x++) {
 			for (let y = 0; y < this.height; y++) {
@@ -177,7 +195,6 @@ export class Grid {
 		// Redraw offscreen layer only when necessary (grid changed, color changed, or layer recreated)
 		if (this.layerDirty || this.cachedActiveColor !== color) {
 			const g = this.cellsLayer!;
-			// Clear layer
 			// Use Canvas2D API to batch rects into a single fill for performance
 			const ctx = (g as any).drawingContext as CanvasRenderingContext2D;
 			ctx.clearRect(0, 0, g.width, g.height);
@@ -258,7 +275,26 @@ export class Grid {
 					case TerrainType.PLAIN:
 						color = this.worldMapColors.plain;
 						break;
+					case TerrainType.HILL:
+						color = this.worldMapColors.hill || '#A8D08D';
+						break;
+					case TerrainType.FOREST:
+						color = this.worldMapColors.forest || '#6B8F6E';
+						break;
+					case TerrainType.BRIDGE:
+						color = this.worldMapColors.bridge || '#DAA520';
+						break;
+					case TerrainType.COAST:
+						color = this.worldMapColors.coast || '#F4A460';
+						break;
+					case TerrainType.VILLAGE:
+						color = this.worldMapColors.village || '#D2B48C';
+						break;
+					case TerrainType.SAND:
+						color = this.worldMapColors.sand || '#F5E6D3';
+						break;
 				}
+				if (!color) return; // Skip if no color defined
 
 				ctx.fillStyle = color;
 				ctx.beginPath();
@@ -277,16 +313,16 @@ export class Grid {
 
 	drawGrid(p: p5, gridColor?: string): void {
 		const visible = this.getVisibleCells(p.width, p.height);
-		
+
 		p.noFill();
 		p.stroke(gridColor || '#323232');
-		
+
 		// Draw vertical lines
 		for (let x = visible.minX; x <= visible.maxX; x++) {
 			const pixelX = x * this.cellSize;
 			p.line(pixelX, visible.minY * this.cellSize, pixelX, (visible.maxY + 1) * this.cellSize);
 		}
-		
+
 		// Draw horizontal lines
 		for (let y = visible.minY; y <= visible.maxY; y++) {
 			const pixelY = y * this.cellSize;

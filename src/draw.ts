@@ -35,7 +35,7 @@ export class DrawingSystem {
 		let y = y0;
 		
 		const drawnCells = new Set<string>();
-		
+
 		while (true) {
 			const cellKey = `${x},${y}`;
 			if (!drawnCells.has(cellKey)) {
@@ -99,10 +99,14 @@ export class DrawingSystem {
 
 		// Draw the initial cell
 		if (p.mouseButton.left) {
-			this.grid.setCell(cell.x, cell.y, 1); // Draw wall
+			// In world map mode, left click draws roads; in normal mode, draws walls
+			const cellValue = this.grid.isWorldMapMode() ? 2 : 1; // ROAD or WALL
+			this.grid.setCell(cell.x, cell.y, cellValue);
 			this.hasChangedGrid = true;
 		} else if (p.mouseButton.right) {
-			this.grid.setCell(cell.x, cell.y, 0); // Erase wall
+			// In world map mode, right click puts plains; in normal mode, erases
+			const cellValue = this.grid.isWorldMapMode() ? 5 : 0; // PLAIN or EMPTY
+			this.grid.setCell(cell.x, cell.y, cellValue);
 			this.hasChangedGrid = true;
 		}
 	}
@@ -131,10 +135,10 @@ export class DrawingSystem {
 			(this.prevMouseXCell !== cell.x || this.prevMouseYCell !== cell.y)) {
 			
 			if (p.mouseButton.left) {
-				this.drawLineBetweenCells(this.prevMouseXCell, this.prevMouseYCell, cell.x, cell.y, 1); // Draw wall
+				this.drawLineBetweenCells(this.prevMouseXCell, this.prevMouseYCell, cell.x, cell.y, this.grid.isWorldMapMode() ? 2 : 1); // ROAD or WALL
 				this.hasChangedGrid = true;
 			} else if (p.mouseButton.right) {
-				this.drawLineBetweenCells(this.prevMouseXCell, this.prevMouseYCell, cell.x, cell.y, 0); // Erase wall
+				this.drawLineBetweenCells(this.prevMouseXCell, this.prevMouseYCell, cell.x, cell.y, this.grid.isWorldMapMode() ? 5 : 0); // PLAIN or EMPTY
 				this.hasChangedGrid = true;
 			}
 		}
