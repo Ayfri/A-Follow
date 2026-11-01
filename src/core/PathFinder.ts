@@ -8,8 +8,6 @@ const DY = [-1, 0, 1, 0];
 const NEAREST_DX = [1, -1, 0, 0];
 const NEAREST_DY = [0, 0, 1, -1];
 
-const UNREACHED = 0x7fffffff;
-
 interface Span {
 	origin: number;
 	size: number;
@@ -23,7 +21,7 @@ interface Span {
 export class PathFinder {
 	/** Cells searched around the visible rect, so paths can bend around walls just outside the screen. */
 	static readonly WINDOW_MARGIN = 16;
-	/** Caps a window side so the buffers stay near 28 MB at the largest window. */
+	/** Caps a window side: the window buffers take 10 bytes per cell (42 MB at the largest window), plus ~16 MB of heap and entries at the node budget. */
 	static readonly MAX_WINDOW_SIDE = 2048;
 	/**
 	 * Expanded nodes after which a search gives up: a target walled in far away can't scan millions of cells.
@@ -32,9 +30,14 @@ export class PathFinder {
 	static readonly NODE_BUDGET = 1 << 18;
 
 	private walls = new Uint8Array(0);
-	/** Best cost per cell. The nearest-open-cell search borrows it as its queue before the A* run refills it. */
+	/** Best cost per cell, only meaningful where `state` is at least `base`. The nearest-open-cell search borrows it as its queue. */
 	private g = new Int32Array(0);
-	private closed = new Uint8Array(0);
+	/**
+	 * Per-cell search state: below `base` is untouched, `base` is reached, `base + 1` is closed. Each search raises `base` by 2
+	 * instead of clearing the buffers, so a search on a 2048 x 2048 window costs in proportion to the cells it visits.
+	 */
+	private state = new Uint32Array(0);
+	private base = 0;
 	/** Direction used to enter each cell (0 up, 1 right, 2 down, 3 left), written whenever its cost improves. */
 	private from = new Uint8Array(0);
 	/** Open entries by insertion order, so an entry id is also its tie-break rank. */
@@ -122,21 +125,31 @@ export class PathFinder {
 		if (this.g.length < area) {
 			this.walls = new Uint8Array(area);
 			this.g = new Int32Array(area);
-			this.closed = new Uint8Array(area);
+			this.state = new Uint32Array(area);
 			this.from = new Uint8Array(area);
 		}
 		grid.copyWalls(window, this.walls);
 	}
 
+	/** Starts a search: everything stamped by an earlier one reads as untouched. */
+	private nextBase(): number {
+		if (this.base > 0xfffffff0) {
+			this.state.fill(0);
+			this.base = 0;
+		}
+		this.base += 2;
+		return this.base;
+	}
+
 	/** Closest open cell to `origin` by BFS inside the window, the origin itself first. */
 	private nearestOpen(window: CellRect, origin: Position): Position | null {
 		const { x: ox, y: oy, width: W, height: H } = window;
-		const { walls, closed: visited, g: queue } = this;
-		visited.fill(0, 0, W * H);
+		const { walls, state, g: queue } = this;
+		const base = this.nextBase();
 
 		const first = (origin.y - oy) * W + origin.x - ox;
 		queue[0] = first;
-		visited[first] = 1;
+		state[first] = base;
 		let head = 0;
 		let tail = 1;
 
@@ -151,8 +164,8 @@ export class PathFinder {
 				const ny = y + NEAREST_DY[d];
 				if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
 				const next = ny * W + nx;
-				if (visited[next] !== 0) continue;
-				visited[next] = 1;
+				if (state[next] === base) continue;
+				state[next] = base;
 				queue[tail++] = next;
 			}
 		}
@@ -161,10 +174,9 @@ export class PathFinder {
 
 	private search(window: CellRect, start: Position, goal: Position): Position[] | null {
 		const { x: ox, y: oy, width: W, height: H } = window;
-		const { walls, g, closed, from } = this;
-		const area = W * H;
-		g.fill(UNREACHED, 0, area);
-		closed.fill(0, 0, area);
+		const { walls, g, state, from } = this;
+		const base = this.nextBase();
+		const closed = base + 1;
 		this.entryCount = 0;
 		this.heapSize = 0;
 
@@ -173,17 +185,18 @@ export class PathFinder {
 		const goalY = goal.y - oy;
 		const goalCell = goalY * W + goalX;
 		g[startCell] = 0;
+		state[startCell] = base;
 		const startH = Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y);
 		this.push(startCell, startH, startH);
 
 		let expanded = 0;
 		while (this.heapSize > 0) {
 			const cell = this.entryCell[this.pop()];
-			if (closed[cell] !== 0) continue;
+			if (state[cell] === closed) continue;
 			if (cell === goalCell) return this.rebuild(window, startCell, goalCell);
 			if (++expanded > PathFinder.NODE_BUDGET) return null;
 
-			closed[cell] = 1;
+			state[cell] = closed;
 			const x = cell % W;
 			const y = (cell - x) / W;
 			const next = g[cell] + 1;
@@ -193,9 +206,11 @@ export class PathFinder {
 				const ny = y + DY[d];
 				if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
 				const n = ny * W + nx;
-				if (closed[n] !== 0 || walls[n] !== 0 || next >= g[n]) continue;
+				const seen = state[n];
+				if (seen === closed || walls[n] !== 0 || (seen === base && next >= g[n])) continue;
 
 				g[n] = next;
+				state[n] = base;
 				from[n] = d;
 				const h = Math.abs(nx - goalX) + Math.abs(ny - goalY);
 				this.push(n, next + h, h);
