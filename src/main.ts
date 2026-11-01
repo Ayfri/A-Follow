@@ -63,7 +63,8 @@ const sketch = (p: p5) => {
 	};
 
 	p.setup = () => {
-		p.createCanvas(p.windowWidth, p.windowHeight);
+		const canvas = p.createCanvas(p.windowWidth, p.windowHeight).elt;
+		canvas.addEventListener('contextmenu', event => event.preventDefault());
 		p.frameRate(60);
 
 		grid.init(p.width, p.height);
@@ -74,8 +75,6 @@ const sketch = (p: p5) => {
 
 		sidebar = new Sidebar(p, player, grid, camera, theme, generateMap, toggleMapMode);
 		sidebar.init();
-
-		document.addEventListener('contextmenu', event => event.preventDefault());
 	};
 
 	p.draw = () => {
