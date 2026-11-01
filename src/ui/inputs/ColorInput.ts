@@ -47,11 +47,11 @@ export class ColorInput {
 		this.colorInput.parent(this.container);
 		this.colorInput.style('width', '50px');
 		this.colorInput.style('height', '30px');
-        this.colorInput.style('border', 'none');
+		this.colorInput.style('border', 'none');
 		this.colorInput.style('border-radius', '8px');
-        this.colorInput.style('cursor', 'pointer');
-        this.colorInput.style('padding', '0');
-        this.colorInput.style('background', 'none');
+		this.colorInput.style('cursor', 'pointer');
+		this.colorInput.style('padding', '0');
+		this.colorInput.style('background', 'none');
 
 		queueMicrotask(() => {
 			this.colorInput.value(this.config.defaultValue);

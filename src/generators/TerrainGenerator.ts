@@ -1,5 +1,5 @@
-import { TerrainType } from '../core/Grid';
-import type { Rng } from '../utils/Random';
+import { TerrainType } from '../core/TerrainType';
+import type { Rng } from '../utils/Rng';
 
 /**
  * Base class for terrain generation algorithms

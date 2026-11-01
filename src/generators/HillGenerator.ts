@@ -1,4 +1,4 @@
-import { TerrainType } from '../core/Grid';
+import { TerrainType } from '../core/TerrainType';
 import { TerrainGenerator } from './TerrainGenerator';
 
 /**

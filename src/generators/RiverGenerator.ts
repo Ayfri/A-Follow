@@ -1,6 +1,6 @@
-import { TerrainType } from '../core/Grid';
-import { TerrainGenerator } from './TerrainGenerator';
+import { TerrainType } from '../core/TerrainType';
 import type { Lake } from './LakeGenerator';
+import { TerrainGenerator } from './TerrainGenerator';
 
 /**
  * Generates rivers flowing from edges toward lakes

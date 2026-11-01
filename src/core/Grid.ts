@@ -1,22 +1,14 @@
 import type p5 from 'p5';
-import type { Camera } from './Camera';
 import { WorldMapGenerator, type WorldGenOptions } from '../generators/WorldMapGenerator';
-import { Rng } from '../utils/Random';
+import { Rng } from '../utils/Rng';
+import type { Camera } from './Camera';
+import { TerrainType } from './TerrainType';
 
-export const TerrainType = {
-	EMPTY: 0,
-	WALL: 1,
-	ROAD: 2,
-	MOUNTAIN: 3,
-	RIVER: 4,
-	PLAIN: 5,
-	HILL: 6,
-	FOREST: 7,
-	BRIDGE: 8,
-	COAST: 9,
-	VILLAGE: 10,
-	SAND: 11
-} as const;
+/** Represents a 2D grid position */
+export interface Position {
+	x: number;
+	y: number;
+}
 
 export interface WorldMapColors {
 	road: string;

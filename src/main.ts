@@ -1,10 +1,10 @@
 import p5 from 'p5';
+import { aStar } from './core/aStar';
 import { Camera } from './core/Camera';
 import { DrawingSystem } from './core/DrawingSystem';
-import { Grid } from './core/Grid';
+import { Grid, type Position } from './core/Grid';
 import { Player } from './core/Player';
 import { Theme } from './core/Theme';
-import { aStar, type Position } from './core/pathfinding';
 import type { WorldGenOptions } from './generators/WorldMapGenerator';
 import { Sidebar } from './ui/Sidebar';
 import './style.css';

@@ -1,7 +1,6 @@
-import type { Position } from './pathfinding';
-import type { Grid } from './Grid';
-import type { Camera } from './Camera';
 import type p5 from 'p5';
+import type { Camera } from './Camera';
+import type { Grid, Position } from './Grid';
 
 export class Player {
 	private x = 0;

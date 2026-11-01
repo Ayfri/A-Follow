@@ -63,7 +63,7 @@ export class Slider {
 			const value = this.getValue();
 			this.updateLabel(value);
 			this.saveToStorage(value);
-            this.config.onChange?.(value);
+			this.config.onChange?.(value);
 		});
 	}
 
@@ -71,7 +71,7 @@ export class Slider {
 		if (this.config.storageKey) {
 			const savedValue = StorageManager.load(this.config.storageKey, this.config.defaultValue);
 			this.setValue(savedValue);
-            this.config.onChange?.(savedValue);
+			this.config.onChange?.(savedValue);
 		}
 	}
 

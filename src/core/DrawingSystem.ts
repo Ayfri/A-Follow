@@ -1,6 +1,6 @@
 import type p5 from 'p5';
-import type { Grid } from './Grid';
 import type { Camera } from './Camera';
+import type { Grid } from './Grid';
 
 export class DrawingSystem {
 	private prevMouseXCell = -1;

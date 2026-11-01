@@ -1,6 +1,6 @@
-import { TerrainType } from '../core/Grid';
-import { TerrainGenerator } from './TerrainGenerator';
+import { TerrainType } from '../core/TerrainType';
 import type { Lake } from './LakeGenerator';
+import { TerrainGenerator } from './TerrainGenerator';
 
 /**
  * Generates sand beaches around lakes and rivers with a smooth gradient

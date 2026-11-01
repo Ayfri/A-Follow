@@ -1,11 +1,11 @@
-import { TerrainType } from '../core/Grid';
-import { Rng } from '../utils/Random';
-import { MountainGenerator } from './MountainGenerator';
+import { TerrainType } from '../core/TerrainType';
+import { Rng } from '../utils/Rng';
+import { CityAndRoadGenerator } from './CityAndRoadGenerator';
+import { ForestGenerator } from './ForestGenerator';
 import { HillGenerator } from './HillGenerator';
 import { LakeGenerator } from './LakeGenerator';
+import { MountainGenerator } from './MountainGenerator';
 import { RiverGenerator } from './RiverGenerator';
-import { ForestGenerator } from './ForestGenerator';
-import { CityAndRoadGenerator } from './CityAndRoadGenerator';
 import { SandGenerator } from './SandGenerator';
 
 export interface WorldGenOptions {

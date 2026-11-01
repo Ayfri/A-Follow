@@ -1,6 +1,6 @@
-import { TerrainType } from '../core/Grid';
+import { TerrainType } from '../core/TerrainType';
+import type { Rng } from '../utils/Rng';
 import { TerrainGenerator } from './TerrainGenerator';
-import type { Rng } from '../utils/Random';
 
 export interface Lake {
 	x: number;

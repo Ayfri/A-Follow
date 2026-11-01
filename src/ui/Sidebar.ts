@@ -1,15 +1,15 @@
 import type p5 from 'p5';
-import type { Player } from '../core/Player';
-import type { Grid } from '../core/Grid';
 import type { Camera } from '../core/Camera';
-import { Slider } from './inputs/Slider';
-import { ColorInput } from './inputs/ColorInput';
-import { Checkbox } from './inputs/Checkbox';
-import { TextInput } from './inputs/TextInput';
+import type { Grid } from '../core/Grid';
+import type { Player } from '../core/Player';
 import { Theme } from '../core/Theme';
-import { Rng } from '../utils/Random';
-import { StorageManager } from '../utils/StorageManager';
 import type { WorldGenOptions } from '../generators/WorldMapGenerator';
+import { Rng } from '../utils/Rng';
+import { StorageManager } from '../utils/StorageManager';
+import { Checkbox } from './inputs/Checkbox';
+import { ColorInput } from './inputs/ColorInput';
+import { Slider } from './inputs/Slider';
+import { TextInput } from './inputs/TextInput';
 
 type Tab = 'general' | 'map' | 'generation' | 'terrain' | 'theme';
 
