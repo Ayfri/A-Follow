@@ -1,59 +1,50 @@
-import type p5 from 'p5';
-import { aStar } from './aStar';
-import type { Grid, Position } from './Grid';
+import type { Camera } from './Camera';
+import { PathFinder } from './PathFinder';
 import type { Player } from './Player';
+import type { CellRect, Position, WallGrid } from './WallGrid';
 
-/** Path from the player to the mouse cell, recomputed only when the target or the grid changes. */
+/** Path from the player to the target cell, recomputed only when the target cell, the walls or the snap option change. */
 export class PathPreview {
-	private path: Position[] = [];
-	private lastSuccessfulPath: Position[] = [];
-	private lastValidTarget: Position = { x: -1, y: -1 };
-	private lastTarget: Position = { x: -1, y: -1 };
-	private dirty = true;
+	private readonly finder = new PathFinder();
+	private target: Position | null = null;
+	private revision = -1;
+	private snap = false;
 
-	invalidate(): void {
-		this.dirty = true;
+	/** With `snap`, a wall target is replaced by the nearest open cell. */
+	update(grid: WallGrid, player: Player, target: Position, view: CellRect, snap: boolean): void {
+		if (
+			this.target !== null && this.target.x === target.x && this.target.y === target.y &&
+			this.revision === grid.revision && this.snap === snap
+		) return;
+
+		this.target = target;
+		this.revision = grid.revision;
+		this.snap = snap;
+
+		const start = player.getPosition();
+		const window = PathFinder.window(view, start, target);
+		player.setPath((window && this.finder.find(grid, start, target, window, snap)) ?? []);
 	}
 
-	/** With `snap`, an untraversable target is replaced by the nearest traversable cell. */
-	update(grid: Grid, player: Player, target: Position, snap: boolean): void {
-		if (!this.dirty && target.x === this.lastTarget.x && target.y === this.lastTarget.y) return;
+	/** Draws the cells still ahead of the player, skipping the ones off screen. */
+	draw(ctx: CanvasRenderingContext2D, camera: Camera, player: Player, color: string): void {
+		const path = player.getPath();
+		const first = player.getPathIndex() + 1;
+		if (first >= path.length) return;
 
-		let goal = target;
-		if (snap && !grid.isCellTraversable(target.x, target.y)) {
-			goal = grid.findNearest(target.x, target.y, (cx, cy) => grid.isCellTraversable(cx, cy)) ?? target;
+		const view = camera.visibleRect();
+		const { scale, offsetX, offsetY } = camera;
+		const size = Math.max(scale, 1);
+
+		ctx.save();
+		ctx.fillStyle = color;
+		ctx.beginPath();
+		for (let i = first; i < path.length; i++) {
+			const { x, y } = path[i];
+			if (x < view.x || x >= view.x + view.width || y < view.y || y >= view.y + view.height) continue;
+			ctx.rect((x - offsetX) * scale, (y - offsetY) * scale, size, size);
 		}
-
-		const newPath = aStar(player.getPosition(), goal, grid);
-
-		if (newPath === null) {
-			if (this.lastValidTarget.x === goal.x && this.lastValidTarget.y === goal.y && this.lastSuccessfulPath.length > 0) {
-				this.path = this.lastSuccessfulPath;
-			} else {
-				this.path = [];
-				player.setPath([]);
-			}
-		} else {
-			this.path = newPath;
-			player.setPath(newPath);
-			this.lastSuccessfulPath = [...newPath];
-			this.lastValidTarget = { ...goal };
-		}
-
-		this.lastTarget = { ...target };
-		this.dirty = false;
-	}
-
-	draw(p: p5, grid: Grid, color: string, playerPos: Position): void {
-		if (this.path.length === 0) return;
-
-		p.fill(color);
-		p.noStroke();
-		const start = this.path.findIndex((cell) => cell.x === playerPos.x && cell.y === playerPos.y) + 1;
-		const cs = grid.getCellSize();
-		for (let i = start; i < this.path.length; i++) {
-			const px = grid.getPixelFromCell(this.path[i].x, this.path[i].y);
-			p.rect(px.x, px.y, cs, cs);
-		}
+		ctx.fill();
+		ctx.restore();
 	}
 }

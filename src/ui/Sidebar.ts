@@ -1,8 +1,9 @@
 import { ChevronLeft, ChevronRight, createElement, type IconNode } from 'lucide';
 import type p5 from 'p5';
-import type { Grid } from '../core/Grid';
+import type { Camera } from '../core/Camera';
 import type { Player } from '../core/Player';
 import type { ColorTheme } from '../core/Theme';
+import type { WallGrid } from '../core/WallGrid';
 import { Checkbox } from './inputs/Checkbox';
 import { ColorInput } from './inputs/ColorInput';
 import { Slider } from './inputs/Slider';
@@ -23,7 +24,8 @@ export class Sidebar {
 
 	private p: p5;
 	private player: Player;
-	private grid: Grid;
+	private grid: WallGrid;
+	private camera: Camera;
 	private theme: ColorTheme;
 
 	private container!: p5.Element;
@@ -33,10 +35,11 @@ export class Sidebar {
 	private isCollapsed = false;
 	private tabPanes: Partial<Record<Tab, p5.Element>> = {};
 
-	constructor(p: p5, player: Player, grid: Grid, theme: ColorTheme) {
+	constructor(p: p5, player: Player, grid: WallGrid, camera: Camera, theme: ColorTheme) {
 		this.p = p;
 		this.player = player;
 		this.grid = grid;
+		this.camera = camera;
 		this.theme = theme;
 	}
 
@@ -209,14 +212,10 @@ export class Sidebar {
 			label: 'Cell Size',
 			min: 3,
 			max: 60,
-			defaultValue: this.grid.getCellSize(),
+			defaultValue: this.camera.cellSize,
 			step: 1,
 			storageKey: 'grid-size',
-			onChange: (size) => {
-				this.grid.setCellSize(size);
-				this.grid.init(this.p.width, this.p.height);
-				this.player.init(this.grid);
-			}
+			onChange: (size) => this.camera.setCellSize(size)
 		});
 		gridSizeSlider.init(pane);
 
@@ -241,7 +240,7 @@ export class Sidebar {
 		this.spacer(pane);
 		this.sectionTitle(pane, 'Maze');
 
-		this.makeBtn(pane, 'Generate Maze', () => this.grid.generateRandomMaze());
+		this.makeBtn(pane, 'Generate Maze', () => this.grid.fillMaze(this.camera.visibleRect()));
 
 		const probSlider = new Slider(this.p, {
 			label: 'Wall Probability',
@@ -253,7 +252,7 @@ export class Sidebar {
 		});
 		probSlider.init(pane);
 
-		this.makeBtn(pane, 'Random Grid', () => this.grid.generateRandomGrid(probSlider.getValue()));
+		this.makeBtn(pane, 'Random Grid', () => this.grid.fillRandom(this.camera.visibleRect(), probSlider.getValue()));
 	}
 
 	private buildThemePane(): void {
@@ -263,7 +262,7 @@ export class Sidebar {
 
 		const THEME_COLORS: { key: keyof ColorTheme; storage: 'bg' | 'wall' | 'path' | 'grid' | 'player'; label: string }[] = [
 			{ key: 'background', storage: 'bg', label: 'Background' },
-			{ key: 'activeCell', storage: 'wall', label: 'Wall' },
+			{ key: 'wall', storage: 'wall', label: 'Wall' },
 			{ key: 'path', storage: 'path', label: 'Path' },
 			{ key: 'grid', storage: 'grid', label: 'Grid Lines' },
 			{ key: 'player', storage: 'player', label: 'Player' },

@@ -15,7 +15,7 @@ export interface CellRect {
  * Chunks are 128 x 128: the worst view (3 px cells, zoom 0.25, 4K) shows 14.7M cells, which is ~950 chunk draws per frame
  * against ~3700 with 64 x 64 chunks, and one chunk re-upload is 64 KB.
  */
-const CHUNK_BITS = 7;
+export const CHUNK_BITS = 7;
 export const CHUNK_SIZE = 1 << CHUNK_BITS;
 const CHUNK_MASK = CHUNK_SIZE - 1;
 
