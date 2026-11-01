@@ -17,7 +17,7 @@ const renderer = new GridRenderer(grid);
 const drawing = new DrawingSystem(grid);
 const player = new Player(5);
 const theme: ColorTheme = { ...DEFAULT_THEME };
-const pathPreview = new PathPreview();
+const pathPreview = new PathPreview(grid);
 
 /** Cell under the cursor when a pan started, kept under the cursor while dragging. */
 let pan: { cellX: number; cellY: number } | null = null;
@@ -76,7 +76,7 @@ const sketch = (p: p5) => {
 		const ctx = p.drawingContext as CanvasRenderingContext2D;
 		renderer.drawWalls(ctx, camera, theme.wall);
 
-		pathPreview.update(grid, player, hovering ? camera.cellAt(p.mouseX, p.mouseY) : null, camera.visibleRect(), sidebar.snapToNearest);
+		pathPreview.update(player,hovering ? camera.cellAt(p.mouseX, p.mouseY) : null, camera.visibleRect(), sidebar.snapToNearest);
 		pathPreview.draw(ctx, camera, player, theme.path);
 
 		if (sidebar.showGrid) renderer.drawLines(ctx, camera, theme.grid);

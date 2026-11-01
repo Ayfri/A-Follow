@@ -7,7 +7,8 @@ export class Player {
 	private y = 0;
 	private speed: number;
 	private lastMoveTime = 0;
-	private path: readonly Position[] = [];
+	/** (x, y) pairs: a path of 250k cells would cost ~50 ms to turn into objects. */
+	private path: Int32Array = new Int32Array(0);
 	private currentPathIndex = 0;
 
 	constructor(speed: number) {
@@ -16,26 +17,27 @@ export class Player {
 
 	getPosition(): Position { return { x: this.x, y: this.y }; }
 
-	getPath(): readonly Position[] { return this.path; }
+	getPath(): Int32Array { return this.path; }
 
 	getPathIndex(): number { return this.currentPathIndex; }
 
-	setPath(newPath: readonly Position[]): void {
+	setPath(newPath: Int32Array): void {
 		this.path = newPath;
 		this.currentPathIndex = 0;
 	}
 
 	update(p: p5): void {
-		if (this.path.length > 0 && this.currentPathIndex < this.path.length - 1) {
+		const last = (this.path.length >> 1) - 1;
+		if (last >= 0 && this.currentPathIndex < last) {
 			const now = p.millis();
 			const elapsed = now - this.lastMoveTime;
 			const moveInterval = 1000 / this.speed;
 			const steps = Math.floor(elapsed / moveInterval);
 
 			if (steps > 0) {
-				this.currentPathIndex = Math.min(this.currentPathIndex + steps, this.path.length - 1);
-				this.x = this.path[this.currentPathIndex].x;
-				this.y = this.path[this.currentPathIndex].y;
+				this.currentPathIndex = Math.min(this.currentPathIndex + steps, last);
+				this.x = this.path[2 * this.currentPathIndex];
+				this.y = this.path[2 * this.currentPathIndex + 1];
 				this.lastMoveTime = now - (elapsed % moveInterval);
 			}
 		} else {

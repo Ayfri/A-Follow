@@ -21,13 +21,23 @@ interface Span {
 export class PathFinder {
 	/** Cells searched around the visible rect, so paths can bend around walls just outside the screen. */
 	static readonly WINDOW_MARGIN = 16;
-	/** Caps a window side: the window buffers take 10 bytes per cell (42 MB at the largest window), plus ~16 MB of heap and entries at the node budget. */
-	static readonly MAX_WINDOW_SIDE = 2048;
+	static readonly MAX_WINDOW_SIDE = 4096;
 	/**
-	 * Expanded nodes after which a search gives up: a target walled in far away can't scan millions of cells.
-	 * A search that exhausts it on a 2048 x 2048 window takes ~108 ms (median of 12), against ~206 ms at 1 << 19.
+	 * Caps the cells of a window (2.9M at a 1680 x 925 screen with 3 px cells at 25% zoom). The window buffers take 10 bytes per cell
+	 * (84 MB at the cap), and the open entries add 16 bytes each (more while their arrays double). A search that scans a 2.9M window
+	 * (unreachable target) raised the process rss by ~155 MB, so a scan of the largest window can take ~450 MB.
 	 */
-	static readonly NODE_BUDGET = 1 << 18;
+	static readonly MAX_WINDOW_AREA = 1 << 23;
+	/** Expanded nodes between two yields of `steps`: a slice takes ~9 ms (median) on a maze, which is how late a newer request is seen. */
+	static readonly SLICE = 50_000;
+	/**
+	 * Margin of the small window `findNear` searches, and the expansions after which it gives up. A search that exhausts the budget
+	 * takes ~1 ms (max 1.6), against ~2.9 ms at 8192, and 4096 still answers 390 of 400 targets 40 to 150 cells away on a random 20% grid.
+	 */
+	static readonly NEAR_MARGIN = 32;
+	static readonly NEAR_BUDGET = 4096;
+	/** A near window bigger than this is not searched: copying it would cost more than the attempt can save. */
+	static readonly NEAR_AREA = 1 << 17;
 
 	private walls = new Uint8Array(0);
 	/** Best cost per cell, only meaningful where `state` is at least `base`. The nearest-open-cell search borrows it as its queue. */
@@ -47,22 +57,42 @@ export class PathFinder {
 	private heap = new Int32Array(0);
 	private entryCount = 0;
 	private heapSize = 0;
+	/** State of the running search that `run` resumes. */
+	private searchWindow: CellRect = { x: 0, y: 0, width: 0, height: 0 };
+	private startCell = 0;
+	private goalCell = 0;
+	private expanded = 0;
 
 	/**
 	 * Search window for a visible rect: the rect plus the margin, extended to hold both endpoints.
-	 * A side longer than the cap becomes a capped segment centered between the endpoints and kept inside that union;
-	 * endpoints a full cap apart on a side can't share a window.
+	 * A side longer than its cap becomes a capped segment centered between the endpoints and kept inside that union;
+	 * endpoints a full cap apart on a side can't share a window. Above the area cap, the longer side shrinks to fit it.
 	 */
 	static window(view: CellRect, start: Position, target: Position): CellRect | null {
-		const x = PathFinder.span(view.x, view.width, start.x, target.x);
-		const y = PathFinder.span(view.y, view.height, start.y, target.y);
+		let x = PathFinder.span(view.x, view.width, start.x, target.x, PathFinder.MAX_WINDOW_SIDE);
+		let y = PathFinder.span(view.y, view.height, start.y, target.y, PathFinder.MAX_WINDOW_SIDE);
+		if (x && y && x.size * y.size > PathFinder.MAX_WINDOW_AREA) {
+			/** The cap stays even, which the centering in `span` needs. */
+			if (x.size >= y.size) x = PathFinder.span(view.x, view.width, start.x, target.x, Math.floor(PathFinder.MAX_WINDOW_AREA / y.size) & ~1);
+			else y = PathFinder.span(view.y, view.height, start.y, target.y, Math.floor(PathFinder.MAX_WINDOW_AREA / x.size) & ~1);
+		}
 		return x && y ? { x: x.origin, y: y.origin, width: x.size, height: y.size } : null;
 	}
 
-	private static span(viewOrigin: number, viewSize: number, a: number, b: number): Span | null {
+	/** (x, y) pairs of a path, the form that crosses the worker boundary and that the player walks. */
+	static pack(path: readonly Position[]): Int32Array<ArrayBuffer> {
+		const packed = new Int32Array(path.length * 2);
+		for (let i = 0; i < path.length; i++) {
+			packed[2 * i] = path[i].x;
+			packed[2 * i + 1] = path[i].y;
+		}
+		return packed;
+	}
+
+	/** `cap` must be even. */
+	private static span(viewOrigin: number, viewSize: number, a: number, b: number, cap: number): Span | null {
 		const lo = Math.min(viewOrigin - PathFinder.WINDOW_MARGIN, a, b);
 		const hi = Math.max(viewOrigin + viewSize + PathFinder.WINDOW_MARGIN, a + 1, b + 1);
-		const cap = PathFinder.MAX_WINDOW_SIDE;
 		if (hi - lo <= cap) return { origin: lo, size: hi - lo };
 
 		const min = Math.min(a, b);
@@ -74,11 +104,48 @@ export class PathFinder {
 	}
 
 	/**
-	 * Shortest path from `start` to `target` inside `window`, both included, or null when there is none.
+	 * Shortest path from `start` to `target` inside `window`, both included, or null when there is none or `budget` expansions weren't enough.
 	 * A wall target gives null, or with `snap` the nearest open cell in the window (BFS) becomes the goal.
 	 * A start on a wall is allowed: the search leaves it like any cell.
 	 */
-	find(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean): Position[] | null {
+	find(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity): Position[] | null {
+		const search = this.steps(grid, start, target, window, snap, budget);
+		while (true) {
+			const step = search.next();
+			if (step.done) return step.value;
+		}
+	}
+
+	/**
+	 * Exact answer for a target close to `start`, from a search on a small window on the calling thread:
+	 * `[]` when the target is a wall and `snap` is off (no path), null when only the full search can tell.
+	 * `window` is the full search window and holds both endpoints. A path of at most `NEAR_MARGIN` * 2 cells over the Manhattan distance
+	 * can't be beaten by one leaving the small window, which has to go more than `NEAR_MARGIN` out and back.
+	 */
+	findNear(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean): Position[] | null {
+		if (grid.isWall(target.x, target.y)) {
+			if (snap) return null;
+			return start.x === target.x && start.y === target.y ? [start] : [];
+		}
+
+		const margin = PathFinder.NEAR_MARGIN;
+		const left = Math.max(window.x, Math.min(start.x, target.x) - margin);
+		const top = Math.max(window.y, Math.min(start.y, target.y) - margin);
+		const right = Math.min(window.x + window.width, Math.max(start.x, target.x) + 1 + margin);
+		const bottom = Math.min(window.y + window.height, Math.max(start.y, target.y) + 1 + margin);
+		if ((right - left) * (bottom - top) > PathFinder.NEAR_AREA) return null;
+
+		const near = { x: left, y: top, width: right - left, height: bottom - top };
+		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET);
+		const distance = Math.abs(start.x - target.x) + Math.abs(start.y - target.y);
+		return path !== null && path.length - 1 <= distance + 2 * margin ? path : null;
+	}
+
+	/**
+	 * `find` as a generator that yields every `SLICE` expanded nodes, so a caller can run other work in between or drop the search.
+	 * The grid is only read before the first yield: the search then runs on its own copy of the window.
+	 */
+	*steps(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity): Generator<void, Position[] | null, undefined> {
 		if (!PathFinder.contains(window, start) || !PathFinder.contains(window, target)) return null;
 
 		let goal = target;
@@ -99,7 +166,12 @@ export class PathFinder {
 		if (straight !== null) return straight;
 
 		if (!loaded) this.load(grid, window);
-		return this.search(window, start, goal);
+		this.begin(window, start, goal);
+		while (true) {
+			const result = this.run(budget);
+			if (result !== undefined) return result;
+			yield;
+		}
 	}
 
 	private static contains(rect: CellRect, p: Position): boolean {
@@ -172,29 +244,42 @@ export class PathFinder {
 		return null;
 	}
 
-	private search(window: CellRect, start: Position, goal: Position): Position[] | null {
-		const { x: ox, y: oy, width: W, height: H } = window;
-		const { walls, g, state, from } = this;
-		const base = this.nextBase();
-		const closed = base + 1;
+	/** Sets up the search state for `run`. */
+	private begin(window: CellRect, start: Position, goal: Position): void {
+		const { x: ox, y: oy, width: W } = window;
+		this.searchWindow = window;
+		this.nextBase();
 		this.entryCount = 0;
 		this.heapSize = 0;
+		this.expanded = 0;
 
-		const startCell = (start.y - oy) * W + start.x - ox;
-		const goalX = goal.x - ox;
-		const goalY = goal.y - oy;
-		const goalCell = goalY * W + goalX;
-		g[startCell] = 0;
-		state[startCell] = base;
+		this.startCell = (start.y - oy) * W + start.x - ox;
+		this.goalCell = (goal.y - oy) * W + goal.x - ox;
+		this.g[this.startCell] = 0;
+		this.state[this.startCell] = this.base;
 		const startH = Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y);
-		this.push(startCell, startH, startH);
+		this.push(this.startCell, startH, startH);
+	}
 
-		let expanded = 0;
+	/**
+	 * Runs the search for up to `SLICE` more expansions: the path, null when it fails (no path, or `budget` expansions in total),
+	 * or undefined when it isn't over. The state is in fields: with the loop inside the generator, it ran 1.5x (open window) to 2.8x (maze) slower in bun.
+	 */
+	private run(budget: number): Position[] | null | undefined {
+		const window = this.searchWindow;
+		const { width: W, height: H } = window;
+		const { walls, g, state, from, base, startCell, goalCell } = this;
+		const closed = base + 1;
+		const goalX = goalCell % W;
+		const goalY = (goalCell - goalX) / W;
+		const sliceEnd = this.expanded + PathFinder.SLICE;
+		let expanded = this.expanded;
+
 		while (this.heapSize > 0) {
 			const cell = this.entryCell[this.pop()];
 			if (state[cell] === closed) continue;
 			if (cell === goalCell) return this.rebuild(window, startCell, goalCell);
-			if (++expanded > PathFinder.NODE_BUDGET) return null;
+			if (++expanded > budget) return null;
 
 			state[cell] = closed;
 			const x = cell % W;
@@ -214,6 +299,11 @@ export class PathFinder {
 				from[n] = d;
 				const h = Math.abs(nx - goalX) + Math.abs(ny - goalY);
 				this.push(n, next + h, h);
+			}
+
+			if (expanded === sliceEnd) {
+				this.expanded = expanded;
+				return undefined;
 			}
 		}
 		return null;

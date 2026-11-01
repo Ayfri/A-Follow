@@ -28,6 +28,14 @@ const COORD_RANGE = 2 ** 25;
 const MAZE_DX = [0, 2, 0, -2];
 const MAZE_DY = [-2, 0, 2, 0];
 
+/** Receives every wall mutation, in order, so another grid can replay them (the path worker's mirror). */
+export interface WallObserver {
+	cell(x: number, y: number, wall: boolean): void;
+	/** `cells` is the exact content written to `rect`, and the observer may keep it. */
+	rect(rect: CellRect, cells: Uint8Array<ArrayBuffer>): void;
+	cleared(): void;
+}
+
 export class Chunk {
 	readonly cells = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
 	walls = 0;
@@ -40,6 +48,7 @@ export class Chunk {
  * Coordinates are int32 and not clamped: at the fastest arrow pan (~533 cells/s) reaching the limit takes ~46 days.
  */
 export class WallGrid {
+	observer: WallObserver | null = null;
 	private readonly chunks = new Map<number, Chunk>();
 	private rev = 0;
 
@@ -83,6 +92,7 @@ export class WallGrid {
 		this.rev++;
 		if (chunk.walls === 0) this.chunks.delete(key);
 		else chunk.version = this.rev;
+		this.observer?.cell(x, y, wall);
 	}
 
 	/** Writes `rect` row-major into `out[0..area)` (1 = wall); bytes past the area are untouched. */
@@ -149,6 +159,7 @@ export class WallGrid {
 		if (this.chunks.size === 0) return;
 		this.chunks.clear();
 		this.rev++;
+		this.observer?.cleared();
 	}
 
 	/** Calls `visit` for every chunk touched by `rect` with the overlap [x0, x1) by [y0, y1) in cell coordinates. */
@@ -169,7 +180,7 @@ export class WallGrid {
 	}
 
 	/** Overwrites `rect` with `cells` (row-major, 1 = wall); a missing chunk is only created when its part of the rect has a wall. */
-	private writeRect(rect: CellRect, cells: Uint8Array): void {
+	writeRect(rect: CellRect, cells: Uint8Array<ArrayBuffer>): void {
 		this.forEachChunkIn(rect, (cx, cy, x0, y0, x1, y1) => {
 			const key = WallGrid.key(cx, cy);
 			let chunk = this.chunks.get(key);
@@ -199,5 +210,6 @@ export class WallGrid {
 			else chunk.version = this.rev + 1;
 		});
 		this.rev++;
+		this.observer?.rect(rect, cells);
 	}
 }
