@@ -6,10 +6,6 @@ import { TerrainGenerator } from './TerrainGenerator';
  * Generates forests for visual interest
  */
 export class ForestGenerator extends TerrainGenerator {
-	generate(): void {
-		// Implementation handled by generateForests method
-	}
-
 	generateForests(lakes: Lake[]): void {
 		// Create larger, more random forest clusters with organic shapes like lakes
 		const forestCount = this.randomRange(10, 25); // More forests but smaller
@@ -28,9 +24,8 @@ export class ForestGenerator extends TerrainGenerator {
 
 			if (attempts >= 50) continue;
 
-			const minDistToLake = this.findMinDistanceTo(x, y, lakes);
 			// Keep forests further from lakes when clusters are larger
-			if (minDistToLake < 20) continue;
+			if (this.findMinDistanceSqTo(x, y, lakes) < 20 * 20) continue;
 
 			// Large but not excessive radii for forests (25-60 instead of 50-120)
 			const forestRadius = 25 + Math.floor(this.rng() * 35);

@@ -24,20 +24,19 @@ export interface WorldGenOptions {
 	};
 }
 
-export const DEFAULT_GEN_OPTIONS: WorldGenOptions = {
-	seed: 0,
-	enable: {
-		mountains:  true,
-		hills:      true,
-		lakes:      true,
-		rivers:     true,
-		forests:    true,
-		cities:     true,
-		villages:   true,
-		bridges:    true,
-		coastlines: true,
-		sand:       true,
-	},
+export type WorldLayer = keyof WorldGenOptions['enable'];
+
+export const DEFAULT_LAYERS: WorldGenOptions['enable'] = {
+	mountains:  true,
+	hills:      true,
+	lakes:      true,
+	rivers:     true,
+	forests:    true,
+	cities:     true,
+	villages:   true,
+	bridges:    true,
+	coastlines: true,
+	sand:       true,
 };
 
 export class WorldMapGenerator {
@@ -51,7 +50,7 @@ export class WorldMapGenerator {
 		this.grid   = [];
 	}
 
-	generate(options: WorldGenOptions = DEFAULT_GEN_OPTIONS): number[][] {
+	generate(options: WorldGenOptions): number[][] {
 		const rng = new Rng(options.seed);
 
 		this.grid = Array.from({ length: this.height }, () =>

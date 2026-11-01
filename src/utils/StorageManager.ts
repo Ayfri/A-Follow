@@ -40,33 +40,4 @@ export class StorageManager {
 			return defaultValue;
 		}
 	}
-
-	/**
-	 * Removes a value from localStorage
-	 * @param key - Unique key to identify the value to remove
-	 */
-	static remove(key: string): void {
-		try {
-			const fullKey = this.PREFIX + key;
-			localStorage.removeItem(fullKey);
-		} catch (error) {
-			console.warn(`Error removing ${key}:`, error);
-		}
-	}
-
-	/**
-	 * Removes all application data from localStorage
-	 */
-	static clearAll(): void {
-		try {
-			const keys = Object.keys(localStorage);
-			keys.forEach(key => {
-				if (key.startsWith(this.PREFIX)) {
-					localStorage.removeItem(key);
-				}
-			});
-		} catch (error) {
-			console.warn('Error clearing all data:', error);
-		}
-	}
 }

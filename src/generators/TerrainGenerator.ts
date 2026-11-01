@@ -18,11 +18,11 @@ export abstract class TerrainGenerator {
 
 	protected readonly ANGLE_OFFSETS_4 = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
 
-	constructor(width: number, height: number, grid: number[][], rng?: Rng) {
+	constructor(width: number, height: number, grid: number[][], rng: Rng) {
 		this.width = width;
 		this.height = height;
 		this.grid = grid;
-		this.rng = rng ? () => rng.random() : Math.random;
+		this.rng = () => rng.random();
 	}
 
 	// ========== UTILITY FUNCTIONS ==========
@@ -38,12 +38,6 @@ export abstract class TerrainGenerator {
 	/** Checks if coordinates are within grid boundaries */
 	protected isInBounds(x: number, y: number): boolean {
 		return x >= 0 && x < this.width && y >= 0 && y < this.height;
-	}
-
-	/** Gets the terrain type at the given coordinates */
-	protected getTerrainAt(x: number, y: number): number {
-		const clamped = this.clamp(x, y);
-		return this.grid[clamped.y][clamped.x];
 	}
 
 	/** Sets the terrain type at the given coordinates */
@@ -111,11 +105,6 @@ export abstract class TerrainGenerator {
 		return minSq;
 	}
 
-	/** Manhattan distance between two points */
-	protected manhattanDistance(x1: number, y1: number, x2: number, y2: number): number {
-		return Math.abs(x2 - x1) + Math.abs(y2 - y1);
-	}
-
 	/** Draws terrain in a circular area */
 	protected drawCircularArea(
 		centerX: number,
@@ -147,8 +136,7 @@ export abstract class TerrainGenerator {
 		x: number,
 		y: number,
 		terrain: number,
-		width: number = 0,
-		options: { respectMountains?: boolean; respectWater?: boolean } = {}
+		width: number = 0
 	): void {
 		for (let dxi = -width; dxi <= width; dxi++) {
 			for (let dyi = -width; dyi <= width; dyi++) {
@@ -159,38 +147,17 @@ export abstract class TerrainGenerator {
 				const ny = y + dyi;
 
 				if (!this.isInBounds(nx, ny)) continue;
-				if (options.respectMountains && this.isMountain(nx, ny)) continue;
-				if (options.respectWater && this.isWater(nx, ny)) continue;
 
 				this.setTerrainAt(nx, ny, terrain);
 			}
 		}
 	}
 
-	/** Finds minimum distance from a point to any item in a collection */
-	protected findMinDistanceTo(x: number, y: number, items: Array<{ x: number; y: number }>): number {
-		let minDist = Infinity;
-		for (const item of items) {
-			const dist = this.distance(x, y, item.x, item.y);
-			minDist = Math.min(minDist, dist);
-		}
-		return minDist;
-	}
-
 	/** Counts terrain type in a square area */
-	protected countTerrainInArea(
-		x: number,
-		y: number,
-		radius: number,
-		terrain: number,
-		options: { circular?: boolean } = {}
-	): number {
-		const radiusSq = radius * radius;
+	protected countTerrainInArea(x: number, y: number, radius: number, terrain: number): number {
 		let count = 0;
 		for (let dx = -radius; dx <= radius; dx++) {
 			for (let dy = -radius; dy <= radius; dy++) {
-				if (options.circular && dx * dx + dy * dy > radiusSq) continue;
-
 				const nx = x + dx;
 				const ny = y + dy;
 				if (this.isInBounds(nx, ny) && this.grid[ny][nx] === terrain) {
@@ -222,7 +189,5 @@ export abstract class TerrainGenerator {
 	protected randomRange(min: number, max: number): number {
 		return min + Math.floor(this.rng() * (max - min));
 	}
-
-	abstract generate(): void;
 }
 

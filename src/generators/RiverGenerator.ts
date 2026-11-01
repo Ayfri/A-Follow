@@ -6,10 +6,6 @@ import { TerrainGenerator } from './TerrainGenerator';
  * Generates rivers flowing from edges toward lakes
  */
 export class RiverGenerator extends TerrainGenerator {
-	generate(): void {
-		// Implementation handled by generateRivers method
-	}
-
 	generateRivers(lakes: Lake[]): void {
 		const riverCount = this.randomRange(4, 8);
 
@@ -25,7 +21,7 @@ export class RiverGenerator extends TerrainGenerator {
 
 			for (let i = 0; i < riverLength; i++) {
 				// Draw river at current position
-				this.drawTerrainWithWidth(x, y, TerrainType.RIVER, riverWidth, { respectMountains: false });
+				this.drawTerrainWithWidth(x, y, TerrainType.RIVER, riverWidth);
 
 				// Check if reached target lake
 				if (targetLake) {

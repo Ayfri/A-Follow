@@ -130,7 +130,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		for (let x = 0; x < this.width; x++) {
 			for (let dy = 0; dy < coastWidth; dy++) {
 				const y = dy;
-				if (this.isPlain(x, y) && !this.isMountain(x, y)) {
+				if (this.isPlain(x, y)) {
 					this.setTerrainAt(x, y, TerrainType.COAST);
 				}
 			}
@@ -140,7 +140,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		for (let x = 0; x < this.width; x++) {
 			for (let dy = 0; dy < coastWidth; dy++) {
 				const y = this.height - 1 - dy;
-				if (this.isPlain(x, y) && !this.isMountain(x, y)) {
+				if (this.isPlain(x, y)) {
 					this.setTerrainAt(x, y, TerrainType.COAST);
 				}
 			}
@@ -150,7 +150,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		for (let y = 0; y < this.height; y++) {
 			for (let dx = 0; dx < coastWidth; dx++) {
 				const x = dx;
-				if (this.isPlain(x, y) && !this.isMountain(x, y)) {
+				if (this.isPlain(x, y)) {
 					this.setTerrainAt(x, y, TerrainType.COAST);
 				}
 			}
@@ -160,15 +160,11 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		for (let y = 0; y < this.height; y++) {
 			for (let dx = 0; dx < coastWidth; dx++) {
 				const x = this.width - 1 - dx;
-				if (this.isPlain(x, y) && !this.isMountain(x, y)) {
+				if (this.isPlain(x, y)) {
 					this.setTerrainAt(x, y, TerrainType.COAST);
 				}
 			}
 		}
-	}
-
-	generate(): void {
-		// Not used, methods called separately
 	}
 
 	// ========== PRIVATE HELPER METHODS ==========

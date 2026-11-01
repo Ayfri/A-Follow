@@ -5,10 +5,6 @@ import { TerrainGenerator } from './TerrainGenerator';
  * Provides pathfinding and road drawing utilities using A* algorithm
  */
 export class RoadUtilities extends TerrainGenerator {
-	generate(): void {
-		// Not used
-	}
-
 	/**
 	 * Remove some forest tiles around a coordinate to simulate clearing when roads cut through.
 	 * radius is Manhattan radius; chance is probability to clear each forest cell.

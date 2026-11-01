@@ -1,5 +1,4 @@
 import { TerrainType } from '../core/TerrainType';
-import type { Rng } from '../utils/Rng';
 import { TerrainGenerator } from './TerrainGenerator';
 
 export interface Lake {
@@ -12,10 +11,6 @@ export interface Lake {
  * Generates lakes with natural convex shapes
  */
 export class LakeGenerator extends TerrainGenerator {
-	constructor(width: number, height: number, grid: number[][], rng?: Rng) {
-		super(width, height, grid, rng);
-	}
-
 	generate(): Lake[] {
 		const lakeCount = 3 + Math.floor(this.rng() * 5);
 		const lakes: Lake[] = [];

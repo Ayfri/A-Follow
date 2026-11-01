@@ -37,7 +37,8 @@ const PAN_SPEED = 400; // world px / sec
 
 function generateMap(seed: number, enable: WorldGenOptions['enable'], multiplier: number): void {
 	const usedSeed = grid.generateWorldMap(
-		{ seed, enable, multiplier },
+		{ seed, enable },
+		multiplier,
 		sketch_p.width,
 		sketch_p.height
 	);

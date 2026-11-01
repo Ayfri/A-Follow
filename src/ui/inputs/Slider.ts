@@ -94,8 +94,4 @@ export class Slider {
 		this.slider.value(value);
 		this.updateLabel(value);
 	}
-
-	destroy(): void {
-		this.container?.remove();
-	}
 }

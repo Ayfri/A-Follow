@@ -85,8 +85,4 @@ export class ColorInput {
 	setValue(color: string): void {
 		this.colorInput.value(color);
 	}
-
-	destroy(): void {
-		this.container?.remove();
-	}
 }

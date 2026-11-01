@@ -108,6 +108,4 @@ export class DrawingSystem {
 		this.startMouseXCell = this.startMouseYCell = -1;
 		this.lockedAxis = null;
 	}
-
-	isDrawing(): boolean { return this.isDragging; }
 }

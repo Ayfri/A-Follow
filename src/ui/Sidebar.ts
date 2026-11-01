@@ -31,29 +31,15 @@ export class Sidebar {
 	private contentArea!: p5.Element;
 	private collapseBtn!: p5.Element;
 	private isCollapsed = false;
-	private activeTab: Tab = 'general';
 	private tabPanes: Partial<Record<Tab, p5.Element>> = {};
-
-	// General tab
-	private speedSlider!: Slider;
-	private gridSizeSlider!: Slider;
-	private showGridCheckbox!: Checkbox;
-	private snapCheckbox!: Checkbox;
 
 	// Map tab
 	private zoomSlider!: Slider;
 
 	// Generation tab
 	private seedInput!: TextInput;
-	private currentSeed = 0;
 	private genToggles: Partial<Record<keyof WorldGenOptions['enable'], Checkbox>> = {};
 	private worldMultiplier = 3;
-
-	// Terrain color inputs
-	private terrainColorInputs: Partial<Record<string, ColorInput>> = {};
-
-	// Theme color inputs
-	private themeColorInputs: Partial<Record<string, ColorInput>> = {};
 
 	constructor(
 		p: p5,
@@ -77,7 +63,7 @@ export class Sidebar {
 		this.buildShell();
 		this.buildTabBar();
 		this.buildAllPanes();
-		this.showTab(this.activeTab);
+		this.showTab('general');
 	}
 
 	// ─── Shell ───────────────────────────────────────────────────────────────
@@ -175,7 +161,6 @@ export class Sidebar {
 	}
 
 	private showTab(tab: Tab): void {
-		this.activeTab = tab;
 		// Update tab button styles via direct DOM
 		const btns = this.tabBar.elt.querySelectorAll('[data-tab]') as NodeListOf<HTMLElement>;
 		btns.forEach((btn) => {
@@ -232,7 +217,7 @@ export class Sidebar {
 		const pane = this.createPane('general');
 
 		this.sectionTitle(pane, 'Player');
-		this.speedSlider = new Slider(this.p, {
+		const speedSlider = new Slider(this.p, {
 			label: 'Speed',
 			min: 1,
 			max: 40,
@@ -245,12 +230,12 @@ export class Sidebar {
 				this.player.setSpeed(speed);
 			}
 		});
-		this.speedSlider.init(pane);
+		speedSlider.init(pane);
 
 		this.spacer(pane);
 		this.sectionTitle(pane, 'Grid');
 
-		this.gridSizeSlider = new Slider(this.p, {
+		const gridSizeSlider = new Slider(this.p, {
 			label: 'Cell Size',
 			min: 3,
 			max: 60,
@@ -263,25 +248,25 @@ export class Sidebar {
 				this.player.init(this.grid);
 			}
 		});
-		this.gridSizeSlider.init(pane);
+		gridSizeSlider.init(pane);
 
-		this.showGridCheckbox = new Checkbox(this.p, {
+		const showGridCheckbox = new Checkbox(this.p, {
 			label: 'Show grid lines',
 			defaultValue: true,
 			storageKey: 'show-grid-color',
 			onChange: (v) => { this.showGridColor = v; }
 		});
-		this.showGridCheckbox.init(pane);
-		this.showGridColor = this.showGridCheckbox.getValue();
+		showGridCheckbox.init(pane);
+		this.showGridColor = showGridCheckbox.getValue();
 
-		this.snapCheckbox = new Checkbox(this.p, {
+		const snapCheckbox = new Checkbox(this.p, {
 			label: 'Snap to nearest tile',
 			defaultValue: false,
 			storageKey: 'snap-to-nearest-tile',
 			onChange: (v) => { this.snapToNearest = v; }
 		});
-		this.snapCheckbox.init(pane);
-		this.snapToNearest = this.snapCheckbox.getValue();
+		snapCheckbox.init(pane);
+		this.snapToNearest = snapCheckbox.getValue();
 
 		this.spacer(pane);
 		this.sectionTitle(pane, 'Maze');
@@ -356,17 +341,11 @@ export class Sidebar {
 
 		this.sectionTitle(pane, 'Seed');
 
-		const savedSeed = StorageManager.load('world-map-seed', '0');
-		this.currentSeed = parseInt(savedSeed) || 0;
-
 		this.seedInput = new TextInput(this.p, {
 			label: 'Seed (0 = random)',
-			defaultValue: String(this.currentSeed),
+			defaultValue: StorageManager.load('world-map-seed', '0'),
 			placeholder: '0',
 			storageKey: 'world-map-seed',
-			onChange: (v) => {
-				this.currentSeed = parseInt(v) || 0;
-			}
 		});
 		this.seedInput.init(pane);
 
@@ -377,13 +356,11 @@ export class Sidebar {
 		seedRow.style('gap', '8px');
 		seedRow.style('margin-bottom', '16px');
 
-		const diceBtn = this.makeInlineBtn(seedRow, '🎲 Random seed', () => {
+		this.makeInlineBtn(seedRow, '🎲 Random seed', () => {
 			const seed = Rng.randomSeed();
 			this.seedInput.setValue(String(seed));
-			this.currentSeed = seed;
 			StorageManager.save('world-map-seed', String(seed));
 		});
-		diceBtn;
 
 		this.spacer(pane);
 		this.sectionTitle(pane, 'World Size');
@@ -454,16 +431,14 @@ export class Sidebar {
 		];
 
 		for (const { key, label, defaultColor } of TERRAIN_COLORS) {
-			const input = new ColorInput(this.p, {
+			new ColorInput(this.p, {
 				label,
 				defaultValue: defaultColor,
 				storageKey: `world-map-${key}-color`,
 				onChange: (color) => {
 					this.grid.setWorldMapColors({ [key]: color });
 				}
-			});
-			input.init(pane);
-			this.terrainColorInputs[key] = input;
+			}).init(pane);
 		}
 	}
 
@@ -481,14 +456,12 @@ export class Sidebar {
 		];
 
 		for (const { key, label, get, set } of THEME_COLORS) {
-			const input = new ColorInput(this.p, {
+			new ColorInput(this.p, {
 				label,
 				defaultValue: get(),
 				storageKey: `${key}-color`,
 				onChange: set,
-			});
-			input.init(pane);
-			this.themeColorInputs[key] = input;
+			}).init(pane);
 		}
 	}
 
@@ -575,21 +548,8 @@ export class Sidebar {
 
 	/** Update the displayed seed after generation */
 	updateSeedDisplay(seed: number): void {
-		this.currentSeed = seed;
 		this.seedInput?.setValue(String(seed));
 		StorageManager.save('world-map-seed', String(seed));
-	}
-
-	destroy(): void {
-		this.speedSlider?.destroy();
-		this.gridSizeSlider?.destroy();
-		this.showGridCheckbox?.destroy();
-		this.snapCheckbox?.destroy();
-		this.seedInput?.destroy();
-		for (const cb of Object.values(this.genToggles)) cb?.destroy();
-		for (const ci of Object.values(this.terrainColorInputs)) ci?.destroy();
-		for (const ci of Object.values(this.themeColorInputs)) ci?.destroy();
-		this.container?.remove();
 	}
 }
 

@@ -10,8 +10,6 @@ export interface TextInputConfig {
 }
 
 export class TextInput {
-	private container!: p5.Element;
-	private labelEl!: p5.Element;
 	private input!: p5.Element;
 	private p: p5;
 	private config: TextInputConfig;
@@ -22,17 +20,17 @@ export class TextInput {
 	}
 
 	init(parent?: p5.Element): void {
-		this.container = this.p.createDiv('');
-		if (parent) this.container.parent(parent);
-		this.container.style('margin-bottom', '15px');
+		const container = this.p.createDiv('');
+		if (parent) container.parent(parent);
+		container.style('margin-bottom', '15px');
 
-		this.labelEl = this.p.createP(this.config.label);
-		this.labelEl.parent(this.container);
-		this.labelEl.style('margin', '0 0 8px 0');
-		this.labelEl.style('font-weight', 'bold');
+		const labelEl = this.p.createP(this.config.label);
+		labelEl.parent(container);
+		labelEl.style('margin', '0 0 8px 0');
+		labelEl.style('font-weight', 'bold');
 
 		this.input = this.p.createElement('input', '');
-		this.input.parent(this.container);
+		this.input.parent(container);
 		(this.input.elt as HTMLInputElement).type = 'text';
 		this.input.attribute('placeholder', this.config.placeholder ?? '');
 		this.input.style('width', '190px');
@@ -66,10 +64,6 @@ export class TextInput {
 
 	setValue(value: string): void {
 		(this.input.elt as HTMLInputElement).value = value;
-	}
-
-	destroy(): void {
-		this.container?.remove();
 	}
 }
 

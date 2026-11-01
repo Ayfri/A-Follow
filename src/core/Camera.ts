@@ -5,8 +5,8 @@ export class Camera {
 	targetZoom = 1.0;
 	private worldPxW = 1;
 	private worldPxH = 1;
-	screenW = 0;
-	screenH = 0;
+	private screenW = 0;
+	private screenH = 0;
 
 	private static readonly ZOOM_LERP = 14; // higher = snappier
 

@@ -197,8 +197,6 @@ export class Grid {
 		this.layerDirty = true;
 	}
 
-	getRawData(): number[][] { return this.grid; }
-
 	// ── Generation ────────────────────────────────────────────────────────────
 
 	generateRandomMaze(): void {
@@ -241,42 +239,18 @@ export class Grid {
 	 * Generate a world map.
 	 * Returns the seed that was actually used (so the UI can display it).
 	 */
-	generateWorldMap(
-		options: Partial<WorldGenOptions> & { multiplier?: number } = {},
-		canvasWidth?: number,
-		canvasHeight?: number
-	): number {
-		const seed = (options.seed !== undefined && options.seed !== 0)
-			? options.seed
-			: Rng.randomSeed();
+	generateWorldMap(options: WorldGenOptions, multiplier: number, canvasWidth: number, canvasHeight: number): number {
+		const seed = options.seed !== 0 ? options.seed : Rng.randomSeed();
 
-		const multiplier = options.multiplier ?? 3;
-		const baseW = canvasWidth  !== undefined ? Math.floor(canvasWidth  / this.cellSize) : this.normalWidth;
-		const baseH = canvasHeight !== undefined ? Math.floor(canvasHeight / this.cellSize) : this.normalHeight;
+		const baseW = Math.floor(canvasWidth / this.cellSize);
+		const baseH = Math.floor(canvasHeight / this.cellSize);
 
 		this.worldWidth  = Math.max(1, Math.floor(baseW * multiplier));
 		this.worldHeight = Math.max(1, Math.floor(baseH * multiplier));
 		this.worldMapMode = true;
 
-		const fullOptions: WorldGenOptions = {
-			seed,
-			enable: {
-				mountains:  true,
-				hills:      true,
-				lakes:      true,
-				rivers:     true,
-				forests:    true,
-				cities:     true,
-				villages:   true,
-				bridges:    true,
-				coastlines: true,
-				sand:       true,
-				...(options.enable ?? {}),
-			},
-		};
-
 		const generator = new WorldMapGenerator(this.worldWidth, this.worldHeight);
-		this.worldGrid = generator.generate(fullOptions);
+		this.worldGrid = generator.generate({ ...options, seed });
 		this.grid   = this.worldGrid;
 		this.width  = this.worldWidth;
 		this.height = this.worldHeight;

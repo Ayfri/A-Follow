@@ -22,10 +22,6 @@ export class SandGenerator extends TerrainGenerator {
 		this.applySandToGrid(sandCells);
 	}
 
-	generate(): void {
-		// Standalone method not used
-	}
-
 	private addSandAroundLake(lake: Lake, sandCells: Set<string>): void {
 		// Instead of creating a circular ring, only add sand adjacent to lake cells
 		const extendedRadius = Math.ceil(lake.radius) + 1;
