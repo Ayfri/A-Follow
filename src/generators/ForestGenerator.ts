@@ -39,12 +39,12 @@ export class ForestGenerator extends TerrainGenerator {
 
 			// Create convex forest shapes using ellipse + moderate perturbation
 			const shapeType = Math.floor(this.rng() * 3); // Fewer shape variations
+			const cosRot = Math.cos(rotation);
+			const sinRot = Math.sin(rotation);
 
 			for (let dx = -forestRadius; dx <= forestRadius; dx++) {
 				for (let dy = -forestRadius; dy <= forestRadius; dy++) {
 					// Rotate the point for organic shapes
-					const cosRot = Math.cos(rotation);
-					const sinRot = Math.sin(rotation);
 					const rotatedX = dx * cosRot - dy * sinRot;
 					const rotatedY = dx * sinRot + dy * cosRot;
 

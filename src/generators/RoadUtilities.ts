@@ -2,6 +2,27 @@ import type { Position } from '../core/Grid';
 import { TerrainType } from '../core/TerrainType';
 import { TerrainGenerator } from './TerrainGenerator';
 
+/** How a road treats the terrain it crosses: whether rivers stop it, and how it clears the forest it cuts through. */
+interface RoadStyle {
+	blocksWater: boolean;
+	/** Probability of clearing a forest area around each forest cell the road replaces. */
+	clearChance: number;
+	/** Manhattan radius of that cleared area. */
+	clearRadius: number;
+	/** Probability of clearing each forest cell in the area. */
+	clearCellChance: number;
+}
+
+/** Neighbor deltas and step costs of the road search (diagonals cost 1.4), module constants so the search loop allocates nothing. */
+const DDX = [1, -1, 0, 0, 1, 1, -1, -1];
+const DDY = [0, 0, 1, -1, 1, -1, 1, -1];
+const DCOST = [1, 1, 1, 1, 1.4, 1.4, 1.4, 1.4];
+
+const MAX_ROAD_SEARCH_ITERATIONS = 10000;
+
+const MAIN_ROAD: RoadStyle ={ blocksWater: false, clearChance: 0.75, clearRadius: 2, clearCellChance: 0.55 };
+const SMALL_ROAD: RoadStyle = { blocksWater: true, clearChance: 0.6, clearRadius: 1, clearCellChance: 0.5 };
+
 /**
  * Provides pathfinding and road drawing utilities using A* algorithm
  */
@@ -26,7 +47,7 @@ export class RoadUtilities extends TerrainGenerator {
 		}
 	}
 
-	protected findPathAvoidingMountains(
+	protected findRoadPath(
 		x0: number,
 		y0: number,
 		x1: number,
@@ -82,13 +103,8 @@ export class RoadUtilities extends TerrainGenerator {
 		gScore[startK] = 0;
 		heapPush(Math.abs(x0 - x1) + Math.abs(y0 - y1), startK);
 
-		// Pre-allocated neighbor deltas [dx, dy, cost*10] (cost stored *10 to stay integer-friendly)
-		const DDX = [1, -1, 0, 0, 1, 1, -1, -1];
-		const DDY = [0, 0, 1, -1, 1, -1, 1, -1];
-		const DCOST = [1, 1, 1, 1, 1.4, 1.4, 1.4, 1.4];
-
 		let iterations = 0;
-		const maxIterations = Math.min(total, 10000);
+		const maxIterations = Math.min(total, MAX_ROAD_SEARCH_ITERATIONS);
 
 		while (heap.length > 0 && iterations < maxIterations) {
 			iterations++;
@@ -144,86 +160,44 @@ export class RoadUtilities extends TerrainGenerator {
 		return null;
 	}
 
+	/** Stamps road cells within `width` (Manhattan) of (x, y), skipping the cells the style doesn't let a road cross. */
+	private stampRoad(x: number, y: number, width: number, style: RoadStyle): void {
+		for (let dxi = -width; dxi <= width; dxi++) {
+			for (let dyi = -width; dyi <= width; dyi++) {
+				if (Math.abs(dxi) + Math.abs(dyi) > width) continue;
+
+				const nx = Math.max(0, Math.min(this.width - 1, x + dxi));
+				const ny = Math.max(0, Math.min(this.height - 1, y + dyi));
+				const prevTerrain = this.grid[ny][nx];
+				if (prevTerrain === TerrainType.MOUNTAIN || (style.blocksWater && prevTerrain === TerrainType.RIVER)) continue;
+
+				this.setTerrainAt(nx, ny, TerrainType.ROAD);
+				if (prevTerrain === TerrainType.FOREST && this.rng() < style.clearChance) {
+					this.deforestArea(nx, ny, style.clearRadius, style.clearCellChance);
+				}
+			}
+		}
+	}
+
+	/** After a diagonal step, stamps the two corner cells so the road stays walkable without diagonal moves. */
+	private stampCorners(prev: Position, cur: Position, width: number, style: RoadStyle): void {
+		const dx = cur.x - prev.x;
+		const dy = cur.y - prev.y;
+		if (Math.abs(dx) !== 1 || Math.abs(dy) !== 1) return;
+
+		this.stampRoad(prev.x + dx, prev.y, width, style);
+		this.stampRoad(prev.x, prev.y + dy, width, style);
+	}
+
 	protected drawRoad(x0: number, y0: number, x1: number, y1: number, roadWidth: number = 1): void {
 		// Use A* pathfinding to bypass mountains
-		const path = this.findPathAvoidingMountains(x0, y0, x1, y1);
+		const path = this.findRoadPath(x0, y0, x1, y1);
 
 		if (!path) return; // No path found
 
-		// Draw the path with curves (fill gaps between diagonal movements)
 		for (let i = 0; i < path.length; i++) {
-			const pos = path[i];
-
-			// Draw road with specified width
-			for (let dxi = -roadWidth; dxi <= roadWidth; dxi++) {
-				for (let dyi = -roadWidth; dyi <= roadWidth; dyi++) {
-					// Check Manhattan distance to ensure proper width (no diagonals for width)
-					const manhattanDist = Math.abs(dxi) + Math.abs(dyi);
-					if (manhattanDist > roadWidth) continue;
-
-					const nx = Math.max(0, Math.min(this.width - 1, pos.x + dxi));
-					const ny = Math.max(0, Math.min(this.height - 1, pos.y + dyi));
-					if (this.grid[ny][nx] !== TerrainType.MOUNTAIN) {
-						// preserve previous terrain to possibly trigger deforestation
-						const prevTerrain = this.grid[ny][nx];
-						this.setTerrainAt(nx, ny, TerrainType.ROAD);
-						// If we cut through forest, clear a small area around the road (deforestation)
-						if (prevTerrain === TerrainType.FOREST) {
-							if (this.rng() < 0.75) {
-								this.deforestArea(nx, ny, 2, 0.55);
-							}
-						}
-					}
-				}
-			}
-
-			// Fill diagonal gaps between consecutive path positions
-			if (i > 0) {
-				const prev = path[i - 1];
-				const dx = pos.x - prev.x;
-				const dy = pos.y - prev.y;
-
-				// If diagonal movement, fill the corner
-				if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
-					// Fill the two corners to make it walkable
-					const corner1 = { x: prev.x + dx, y: prev.y };
-					const corner2 = { x: prev.x, y: prev.y + dy };
-
-					// Draw at corner1
-					for (let dxi = -roadWidth; dxi <= roadWidth; dxi++) {
-						for (let dyi = -roadWidth; dyi <= roadWidth; dyi++) {
-							const manhattanDist = Math.abs(dxi) + Math.abs(dyi);
-							if (manhattanDist > roadWidth) continue;
-							const nx = Math.max(0, Math.min(this.width - 1, corner1.x + dxi));
-							const ny = Math.max(0, Math.min(this.height - 1, corner1.y + dyi));
-							if (this.grid[ny][nx] !== TerrainType.MOUNTAIN) {
-								const prevTerrain = this.grid[ny][nx];
-								this.setTerrainAt(nx, ny, TerrainType.ROAD);
-								if (prevTerrain === TerrainType.FOREST) {
-									if (this.rng() < 0.75) this.deforestArea(nx, ny, 2, 0.55);
-								}
-							}
-						}
-					}
-
-					// Draw at corner2
-						for (let dxi = -roadWidth; dxi <= roadWidth; dxi++) {
-							for (let dyi = -roadWidth; dyi <= roadWidth; dyi++) {
-								const manhattanDist = Math.abs(dxi) + Math.abs(dyi);
-								if (manhattanDist > roadWidth) continue;
-								const nx = Math.max(0, Math.min(this.width - 1, corner2.x + dxi));
-								const ny = Math.max(0, Math.min(this.height - 1, corner2.y + dyi));
-								if (this.grid[ny][nx] !== TerrainType.MOUNTAIN) {
-									const prevTerrain = this.grid[ny][nx];
-									this.setTerrainAt(nx, ny, TerrainType.ROAD);
-									if (prevTerrain === TerrainType.FOREST) {
-										if (this.rng() < 0.75) this.deforestArea(nx, ny, 2, 0.55);
-									}
-								}
-							}
-						}
-				}
-			}
+			this.stampRoad(path[i].x, path[i].y, roadWidth, MAIN_ROAD);
+			if (i > 0) this.stampCorners(path[i - 1], path[i], roadWidth, MAIN_ROAD);
 		}
 	}
 
@@ -245,68 +219,8 @@ export class RoadUtilities extends TerrainGenerator {
 				break;
 			}
 
-			// Draw road with specified width
-			for (let dxi = -roadWidth; dxi <= roadWidth; dxi++) {
-				for (let dyi = -roadWidth; dyi <= roadWidth; dyi++) {
-					// Check Manhattan distance to ensure proper width (no diagonals for width)
-					const manhattanDist = Math.abs(dxi) + Math.abs(dyi);
-					if (manhattanDist > roadWidth) continue;
-
-					const nx = Math.max(0, Math.min(this.width - 1, x + dxi));
-					const ny = Math.max(0, Math.min(this.height - 1, y + dyi));
-					// Don't overwrite mountains or rivers
-					if (this.grid[ny][nx] !== TerrainType.MOUNTAIN && this.grid[ny][nx] !== TerrainType.RIVER) {
-						const prevTerrain = this.grid[ny][nx];
-						this.setTerrainAt(nx, ny, TerrainType.ROAD);
-						if (prevTerrain === TerrainType.FOREST) {
-							if (this.rng() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
-						}
-					}
-				}
-			}
-
-			// Fill diagonal gaps
-			const moveX = x - prevX;
-			const moveY = y - prevY;
-			if (Math.abs(moveX) === 1 && Math.abs(moveY) === 1) {
-				// Fill corner cells to allow player movement
-				const corner1 = { x: prevX + moveX, y: prevY };
-				const corner2 = { x: prevX, y: prevY + moveY };
-
-				// Draw at corner1
-				for (let dxi = -roadWidth; dxi <= roadWidth; dxi++) {
-					for (let dyi = -roadWidth; dyi <= roadWidth; dyi++) {
-						const manhattanDist = Math.abs(dxi) + Math.abs(dyi);
-						if (manhattanDist > roadWidth) continue;
-						const nx = Math.max(0, Math.min(this.width - 1, corner1.x + dxi));
-						const ny = Math.max(0, Math.min(this.height - 1, corner1.y + dyi));
-						if (this.grid[ny][nx] !== TerrainType.MOUNTAIN && this.grid[ny][nx] !== TerrainType.RIVER) {
-							const prevTerrain = this.grid[ny][nx];
-							this.setTerrainAt(nx, ny, TerrainType.ROAD);
-							if (prevTerrain === TerrainType.FOREST) {
-								if (this.rng() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
-							}
-						}
-					}
-				}
-
-				// Draw at corner2
-				for (let dxi = -roadWidth; dxi <= roadWidth; dxi++) {
-					for (let dyi = -roadWidth; dyi <= roadWidth; dyi++) {
-						const manhattanDist = Math.abs(dxi) + Math.abs(dyi);
-						if (manhattanDist > roadWidth) continue;
-						const nx = Math.max(0, Math.min(this.width - 1, corner2.x + dxi));
-						const ny = Math.max(0, Math.min(this.height - 1, corner2.y + dyi));
-						if (this.grid[ny][nx] !== TerrainType.MOUNTAIN && this.grid[ny][nx] !== TerrainType.RIVER) {
-							const prevTerrain = this.grid[ny][nx];
-							this.setTerrainAt(nx, ny, TerrainType.ROAD);
-							if (prevTerrain === TerrainType.FOREST) {
-								if (this.rng() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
-							}
-						}
-					}
-				}
-			}
+			this.stampRoad(x, y, roadWidth, SMALL_ROAD);
+			this.stampCorners({ x: prevX, y: prevY }, { x, y }, roadWidth, SMALL_ROAD);
 
 			if (x === x1 && y === y1) break;
 
@@ -325,4 +239,3 @@ export class RoadUtilities extends TerrainGenerator {
 		}
 	}
 }
-

@@ -2,6 +2,11 @@ import { TerrainType } from '../core/TerrainType';
 import type { Lake } from './LakeGenerator';
 import { TerrainGenerator } from './TerrainGenerator';
 
+const ANGLE_OFFSETS_6 = [
+	Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2,
+	(3 * Math.PI) / 4, -(3 * Math.PI) / 4
+];
+
 /**
  * Generates rivers flowing from edges toward lakes
  */
@@ -39,7 +44,7 @@ export class RiverGenerator extends TerrainGenerator {
 				// If blocked by mountain, try to find alternative direction
 				if (this.isMountain(nextX, nextY)) {
 					let foundPath = false;
-					for (const offset of this.ANGLE_OFFSETS_6) {
+					for (const offset of ANGLE_OFFSETS_6) {
 						const testAngle = currentAngle + offset;
 						let testX = x + Math.floor(Math.cos(testAngle) * 2);
 						let testY = y + Math.floor(Math.sin(testAngle) * 2);

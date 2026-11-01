@@ -36,11 +36,11 @@ export class LakeGenerator extends TerrainGenerator {
 			lakes.push({ x, y, radius: Math.max(radiusX, radiusY) });
 
 			const shapeType = Math.floor(this.rng() * 3);
+			const cosRot = Math.cos(rotation);
+			const sinRot = Math.sin(rotation);
 
 			for (let dx = -lakeRadius; dx <= lakeRadius; dx++) {
 				for (let dy = -lakeRadius; dy <= lakeRadius; dy++) {
-					const cosRot = Math.cos(rotation);
-					const sinRot = Math.sin(rotation);
 					const rotatedX = dx * cosRot - dy * sinRot;
 					const rotatedY = dx * sinRot + dy * cosRot;
 

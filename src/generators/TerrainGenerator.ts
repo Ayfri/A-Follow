@@ -12,13 +12,6 @@ export abstract class TerrainGenerator {
 	protected grid: Terrain[][];
 	protected rng: () => number;
 
-	protected readonly ANGLE_OFFSETS_6 = [
-		Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2,
-		(3 * Math.PI) / 4, -(3 * Math.PI) / 4
-	];
-
-	protected readonly ANGLE_OFFSETS_4 = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
-
 	constructor(width: number, height: number, grid: Terrain[][], rng: Rng) {
 		this.width = width;
 		this.height = height;

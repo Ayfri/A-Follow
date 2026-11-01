@@ -2,6 +2,8 @@ import type { Position } from '../core/Grid';
 import { TerrainType } from '../core/TerrainType';
 import { RoadUtilities } from './RoadUtilities';
 
+const ANGLE_OFFSETS_4 = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
+
 /**
  * Generates cities, roads, and settlements
  */
@@ -98,21 +100,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 			if (!this.isWater(x, y)) continue;
 
 			// Check if nearby there's a road trying to cross
-			let hasNearbyRoad = false;
-			for (let dx = -3; dx <= 3; dx++) {
-				for (let dy = -3; dy <= 3; dy++) {
-					const nx = x + dx;
-					const ny = y + dy;
-					if (this.isInBounds(nx, ny) && this.isRoad(nx, ny)) {
-						hasNearbyRoad = true;
-						break;
-					}
-				}
-				if (hasNearbyRoad) break;
-			}
-
-			if (hasNearbyRoad) {
-				// Place bridge
+			if (this.countTerrainInArea(x, y, 3, TerrainType.ROAD) > 0) {
 				this.drawTerrainWithWidth(x, y, TerrainType.BRIDGE, 1);
 			}
 		}
@@ -121,44 +109,21 @@ export class CityAndRoadGenerator extends RoadUtilities {
 	generateCoastlines(): void {
 		// Add coastlines near the edges of the map
 		const coastWidth = this.randomRange(2, 5);
+		const coast = (x: number, y: number): void => {
+			if (this.isPlain(x, y)) this.setTerrainAt(x, y, TerrainType.COAST);
+		};
 
-		// Top edge
 		for (let x = 0; x < this.width; x++) {
-			for (let dy = 0; dy < coastWidth; dy++) {
-				const y = dy;
-				if (this.isPlain(x, y)) {
-					this.setTerrainAt(x, y, TerrainType.COAST);
-				}
+			for (let d = 0; d < coastWidth; d++) {
+				coast(x, d);
+				coast(x, this.height - 1 - d);
 			}
 		}
 
-		// Bottom edge
-		for (let x = 0; x < this.width; x++) {
-			for (let dy = 0; dy < coastWidth; dy++) {
-				const y = this.height - 1 - dy;
-				if (this.isPlain(x, y)) {
-					this.setTerrainAt(x, y, TerrainType.COAST);
-				}
-			}
-		}
-
-		// Left edge
 		for (let y = 0; y < this.height; y++) {
-			for (let dx = 0; dx < coastWidth; dx++) {
-				const x = dx;
-				if (this.isPlain(x, y)) {
-					this.setTerrainAt(x, y, TerrainType.COAST);
-				}
-			}
-		}
-
-		// Right edge
-		for (let y = 0; y < this.height; y++) {
-			for (let dx = 0; dx < coastWidth; dx++) {
-				const x = this.width - 1 - dx;
-				if (this.isPlain(x, y)) {
-					this.setTerrainAt(x, y, TerrainType.COAST);
-				}
+			for (let d = 0; d < coastWidth; d++) {
+				coast(d, y);
+				coast(this.width - 1 - d, y);
 			}
 		}
 	}
@@ -236,7 +201,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 
 			if (!this.isRoad(x, y)) continue;
 
-			if (this.findMinDistanceSqTo(x, y, cities) < 400) continue; // 20²
+			if (this.findMinDistanceSqTo(x, y, cities) < 20 * 20) continue;
 
 			// Check road density
 			const nearbyRoadCount = this.countTerrainInArea(x, y, 10, TerrainType.ROAD);
@@ -297,7 +262,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		currentAngle: number,
 		onAngleChange: (angle: number) => void
 	): boolean {
-		for (const offset of this.ANGLE_OFFSETS_4) {
+		for (const offset of ANGLE_OFFSETS_4) {
 			const testAngle = currentAngle + offset;
 			let testX = x + Math.floor(Math.cos(testAngle) * 2);
 			let testY = y + Math.floor(Math.sin(testAngle) * 2);

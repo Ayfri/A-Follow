@@ -74,7 +74,7 @@ export class WorldMapGenerator {
 		if (options.enable.villages) cityGen.generateVillages(cities);
 		if (options.enable.bridges)  cityGen.generateBridges();
 		if (options.enable.coastlines) cityGen.generateCoastlines();
-		if (options.enable.sand)     new SandGenerator(this.width, this.height, this.grid, rng).generateSandBeaches(lakes);
+		if (options.enable.sand)     new SandGenerator(this.width, this.height, this.grid, rng).generateSandBeaches();
 
 		return this.grid;
 	}
