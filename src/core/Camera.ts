@@ -1,20 +1,20 @@
-import type { Position } from './Grid';
+import type { CellRect, Position } from './WallGrid';
 
-/** Screen point kept fixed during a zoom animation, with the world point that was under it when the zoom started. */
+/** Screen point kept fixed during a zoom animation, with the fractional cell that was under it when the zoom started. */
 interface ZoomAnchor {
 	screenX: number;
 	screenY: number;
-	worldX: number;
-	worldY: number;
+	cellX: number;
+	cellY: number;
 }
 
+/** View of the infinite grid: the offset is the fractional cell at the screen's top-left, `scale` is screen pixels per cell. */
 export class Camera {
 	offsetX = 0;
 	offsetY = 0;
 	zoom = 1.0;
 	targetZoom = 1.0;
-	private worldPxW = 1;
-	private worldPxH = 1;
+	private size: number;
 	private screenW = 0;
 	private screenH = 0;
 	private anchor: ZoomAnchor | null = null;
@@ -26,22 +26,26 @@ export class Camera {
 	/** Below this gap the zoom snaps to its target so the animation ends. */
 	private static readonly ZOOM_SNAP = 1e-4;
 
-	setWorldSize(pxW: number, pxH: number): void {
-		this.worldPxW = Math.max(1, pxW);
-		this.worldPxH = Math.max(1, pxH);
-		this.clampOffset();
+	constructor(cellSize: number) {
+		this.size = cellSize;
+	}
+
+	get cellSize(): number {
+		return this.size;
+	}
+
+	get scale(): number {
+		return this.size * this.zoom;
 	}
 
 	setScreenSize(w: number, h: number): void {
 		this.screenW = w;
 		this.screenH = h;
-		this.clampOffset();
 	}
 
 	/**
 	 * Advances the zoom animation by `dt` seconds (frame-rate independent) and returns whether the camera moved.
-	 * The offset is recomputed from the anchor each step, so the anchored world point stays under its screen point
-	 * exactly, except where clamping at the world edges forces the view to move.
+	 * The offset is recomputed from the anchor each step, so the anchored cell stays under its screen point exactly.
 	 */
 	update(dt: number): boolean {
 		if (this.zoom === this.targetZoom) return false;
@@ -52,26 +56,44 @@ export class Camera {
 			: this.zoom + diff * (1 - Math.exp(-Camera.ZOOM_EASE * dt));
 
 		if (this.anchor) {
-			this.offsetX = this.anchor.worldX - this.anchor.screenX / this.zoom;
-			this.offsetY = this.anchor.worldY - this.anchor.screenY / this.zoom;
+			this.offsetX = this.anchor.cellX - this.anchor.screenX / this.scale;
+			this.offsetY = this.anchor.cellY - this.anchor.screenY / this.scale;
 		}
-		this.clampOffset();
 
 		if (this.zoom === this.targetZoom) this.anchor = null;
 		return true;
 	}
 
-	screenToWorld(sx: number, sy: number): Position {
+	/** Fractional cell coordinates under a screen point. */
+	screenToCell(sx: number, sy: number): Position {
 		return {
-			x: sx / this.zoom + this.offsetX,
-			y: sy / this.zoom + this.offsetY,
+			x: sx / this.scale + this.offsetX,
+			y: sy / this.scale + this.offsetY,
 		};
 	}
 
-	worldToScreen(wx: number, wy: number): Position {
+	/** Screen position of a fractional cell coordinate. */
+	cellToScreen(cx: number, cy: number): Position {
 		return {
-			x: (wx - this.offsetX) * this.zoom,
-			y: (wy - this.offsetY) * this.zoom,
+			x: (cx - this.offsetX) * this.scale,
+			y: (cy - this.offsetY) * this.scale,
+		};
+	}
+
+	cellAt(sx: number, sy: number): Position {
+		const cell = this.screenToCell(sx, sy);
+		return { x: Math.floor(cell.x), y: Math.floor(cell.y) };
+	}
+
+	/** Smallest integer cell rectangle covering the screen. */
+	visibleRect(): CellRect {
+		const x = Math.floor(this.offsetX);
+		const y = Math.floor(this.offsetY);
+		return {
+			x,
+			y,
+			width: Math.ceil(this.offsetX + this.screenW / this.scale) - x,
+			height: Math.ceil(this.offsetY + this.screenH / this.scale) - y,
 		};
 	}
 
@@ -79,16 +101,16 @@ export class Camera {
 	moveTo(offsetX: number, offsetY: number): void {
 		this.offsetX = offsetX;
 		this.offsetY = offsetY;
-		this.clampOffset();
 		this.reanchor();
 	}
 
+	/** Pans by `dx`, `dy` cells. */
 	pan(dx: number, dy: number): void {
 		this.moveTo(this.offsetX + dx, this.offsetY + dy);
 	}
 
 	/**
-	 * Smooth wheel zoom: multiplies the target zoom and anchors the world point under (screenX, screenY).
+	 * Smooth wheel zoom: multiplies the target zoom and anchors the cell under (screenX, screenY).
 	 * Several ticks stack on the target, each one re-anchoring at the current cursor. Only `update()` moves the camera.
 	 */
 	smoothZoomAt(factor: number, screenX: number, screenY: number): void {
@@ -96,49 +118,42 @@ export class Camera {
 		this.anchor = this.targetZoom === this.zoom ? null : {
 			screenX,
 			screenY,
-			worldX: this.offsetX + screenX / this.zoom,
-			worldY: this.offsetY + screenY / this.zoom,
+			cellX: this.offsetX + screenX / this.scale,
+			cellY: this.offsetY + screenY / this.scale,
 		};
 	}
 
-	/** Immediate zoom (for slider), around the given screen point or the screen center. */
+	/** Immediate zoom, around the given screen point or the screen center. Cancels a running animation. */
 	setZoom(newZoom: number, anchorSx = this.screenW / 2, anchorSy = this.screenH / 2): void {
-		const worldAnchorX = anchorSx / this.zoom + this.offsetX;
-		const worldAnchorY = anchorSy / this.zoom + this.offsetY;
+		const anchorCell = this.screenToCell(anchorSx, anchorSy);
 		this.zoom = Math.max(Camera.MIN_ZOOM, Math.min(Camera.MAX_ZOOM, newZoom));
 		this.targetZoom = this.zoom;
 		this.anchor = null;
-		this.offsetX = worldAnchorX - anchorSx / this.zoom;
-		this.offsetY = worldAnchorY - anchorSy / this.zoom;
-		this.clampOffset();
+		this.offsetX = anchorCell.x - anchorSx / this.scale;
+		this.offsetY = anchorCell.y - anchorSy / this.scale;
 	}
 
-	/** Center camera on a world-pixel point and reset zoom */
-	resetTo(worldPxX: number, worldPxY: number): void {
+	/** Changes the cell size around the given screen point or the screen center. A running zoom animation continues. */
+	setCellSize(size: number, anchorSx = this.screenW / 2, anchorSy = this.screenH / 2): void {
+		const anchorCell = this.screenToCell(anchorSx, anchorSy);
+		this.size = size;
+		this.offsetX = anchorCell.x - anchorSx / this.scale;
+		this.offsetY = anchorCell.y - anchorSy / this.scale;
+		this.reanchor();
+	}
+
+	/** Puts the center of a cell at the screen center, at zoom 1. Cancels a running animation. */
+	centerOn(cellX: number, cellY: number): void {
 		this.zoom = 1.0;
 		this.targetZoom = 1.0;
 		this.anchor = null;
-		this.offsetX = worldPxX - this.screenW / 2;
-		this.offsetY = worldPxY - this.screenH / 2;
-		this.clampOffset();
-	}
-
-	/** Clamping at a world edge moves the view away from the anchored point: the anchor follows what is now under the cursor. */
-	private clampOffset(): void {
-		const maxX = this.worldPxW - this.screenW / this.zoom;
-		const maxY = this.worldPxH - this.screenH / this.zoom;
-		const x = Math.max(0, Math.min(maxX > 0 ? maxX : 0, this.offsetX));
-		const y = Math.max(0, Math.min(maxY > 0 ? maxY : 0, this.offsetY));
-		if (x === this.offsetX && y === this.offsetY) return;
-
-		this.offsetX = x;
-		this.offsetY = y;
-		this.reanchor();
+		this.offsetX = cellX + 0.5 - this.screenW / 2 / this.scale;
+		this.offsetY = cellY + 0.5 - this.screenH / 2 / this.scale;
 	}
 
 	private reanchor(): void {
 		if (!this.anchor) return;
-		this.anchor.worldX = this.offsetX + this.anchor.screenX / this.zoom;
-		this.anchor.worldY = this.offsetY + this.anchor.screenY / this.zoom;
+		this.anchor.cellX = this.offsetX + this.anchor.screenX / this.scale;
+		this.anchor.cellY = this.offsetY + this.anchor.screenY / this.scale;
 	}
 }
