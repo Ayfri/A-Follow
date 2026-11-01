@@ -81,8 +81,15 @@ export class Grid {
 	private worldGrid: Terrain[][] = [];
 	private worldWidth = 0;
 	private worldHeight = 0;
-	private worldOffscreenCanvas?: HTMLCanvasElement;
-	private worldOffscreenDirty = false;
+	/** One pixel per cell: a path of millions of rects draws nothing in Chrome, and this keeps the canvas at cells x 4 bytes. */
+	private worldCanvas?: HTMLCanvasElement;
+	private worldImage?: ImageData;
+	private worldPixels?: Uint32Array;
+	/** Inclusive bounds in cells of the pixels written since the last upload; empty while min > max. */
+	private worldDirtyMinX = Infinity;
+	private worldDirtyMinY = Infinity;
+	private worldDirtyMaxX = -1;
+	private worldDirtyMaxY = -1;
 
 	private worldMapMode = false;
 	private worldMapColors: WorldMapColors = {
@@ -97,6 +104,7 @@ export class Grid {
 		village:  '#D2B48C',
 		sand:     '#F5E6D3'
 	};
+	private worldColorLUT = this.buildColorLUT();
 
 	// ── Normal mode rendering layers ────────────────────────────────────────
 	private cellSize: number;
@@ -156,7 +164,8 @@ export class Grid {
 
 	setWorldMapColors(colors: Partial<WorldMapColors>): void {
 		this.worldMapColors = { ...this.worldMapColors, ...colors };
-		this.worldOffscreenDirty = true;
+		this.worldColorLUT = this.buildColorLUT();
+		this.recolorWorld();
 	}
 
 	getWorldMapColors(): WorldMapColors {
@@ -175,7 +184,13 @@ export class Grid {
 			if (this.grid[y][x] !== value) {
 				this.grid[y][x] = value;
 				if (this.worldMapMode) {
-					this.worldOffscreenDirty = true;
+					if (this.worldPixels) {
+						this.worldPixels[y * this.worldWidth + x] = this.worldColorLUT[value];
+						this.worldDirtyMinX = Math.min(this.worldDirtyMinX, x);
+						this.worldDirtyMinY = Math.min(this.worldDirtyMinY, y);
+						this.worldDirtyMaxX = Math.max(this.worldDirtyMaxX, x);
+						this.worldDirtyMaxY = Math.max(this.worldDirtyMaxY, y);
+					}
 				} else {
 					this.markCellsDirty();
 				}
@@ -286,7 +301,7 @@ export class Grid {
 		this.width  = this.worldWidth;
 		this.height = this.worldHeight;
 
-		this.buildWorldCanvas();
+		this.recolorWorld();
 		return seed;
 	}
 
@@ -458,67 +473,70 @@ export class Grid {
 		return neighbors;
 	}
 
-	private buildWorldCanvas(): void {
-		const pxW = this.worldWidth  * this.cellSize;
-		const pxH = this.worldHeight * this.cellSize;
+	/** Rewrites every world pixel from the grid and the color LUT, allocating the canvas and its pixel view when the world size changed. */
+	private recolorWorld(): void {
+		if (this.worldWidth === 0) return;
 
-		if (!this.worldOffscreenCanvas ||
-			this.worldOffscreenCanvas.width  !== pxW ||
-			this.worldOffscreenCanvas.height !== pxH) {
-			this.worldOffscreenCanvas = document.createElement('canvas');
-			this.worldOffscreenCanvas.width  = pxW;
-			this.worldOffscreenCanvas.height = pxH;
+		if (!this.worldCanvas || this.worldCanvas.width !== this.worldWidth || this.worldCanvas.height !== this.worldHeight) {
+			this.worldCanvas = document.createElement('canvas');
+			this.worldCanvas.width = this.worldWidth;
+			this.worldCanvas.height = this.worldHeight;
+			this.worldImage = new ImageData(this.worldWidth, this.worldHeight);
+			this.worldPixels = new Uint32Array(this.worldImage.data.buffer);
 		}
 
-		const ctx = this.worldOffscreenCanvas.getContext('2d')!;
-		ctx.clearRect(0, 0, pxW, pxH);
-
-		const colors = this.buildColorLUT();
-		const cs = this.cellSize;
-
-		for (let t = 2; t < colors.length; t++) {
-			const color = colors[t];
-			if (!color) continue;
-			ctx.fillStyle = color;
-			ctx.beginPath();
-			for (let y = 0; y < this.worldHeight; y++) {
-				const row = this.worldGrid[y];
-				for (let x = 0; x < this.worldWidth; x++) {
-					if (row[x] === t) ctx.rect(x * cs, y * cs, cs, cs);
-				}
-			}
-			ctx.fill();
+		const pixels = this.worldPixels!;
+		const lut = this.worldColorLUT;
+		let i = 0;
+		for (let y = 0; y < this.worldHeight; y++) {
+			const row = this.worldGrid[y];
+			for (let x = 0; x < this.worldWidth; x++) pixels[i++] = lut[row[x]];
 		}
-
-		this.worldOffscreenDirty = false;
+		this.worldDirtyMinX = 0;
+		this.worldDirtyMinY = 0;
+		this.worldDirtyMaxX = this.worldWidth - 1;
+		this.worldDirtyMaxY = this.worldHeight - 1;
 	}
 
-	private buildColorLUT(): string[] {
-		return [
-			'', // EMPTY
-			'', // WALL
-			this.worldMapColors.road,
-			this.worldMapColors.mountain,
-			this.worldMapColors.river,
-			this.worldMapColors.plain,
-			this.worldMapColors.hill,
-			this.worldMapColors.forest,
-			this.worldMapColors.bridge,
-			this.worldMapColors.coast,
-			this.worldMapColors.village,
-			this.worldMapColors.sand,
-		];
+	/** Indexed by Terrain. EMPTY and WALL stay 0 (transparent). */
+	private buildColorLUT(): Uint32Array {
+		const c = this.worldMapColors;
+		return Uint32Array.of(
+			0, 0,
+			Grid.packColor(c.road), Grid.packColor(c.mountain), Grid.packColor(c.river), Grid.packColor(c.plain),
+			Grid.packColor(c.hill), Grid.packColor(c.forest), Grid.packColor(c.bridge), Grid.packColor(c.coast),
+			Grid.packColor(c.village), Grid.packColor(c.sand)
+		);
+	}
+
+	/** Packs `#rrggbb` (what color inputs always give) as an opaque pixel: ImageData bytes are R, G, B, A, read little-endian as 0xAABBGGRR. */
+	private static packColor(hex: string): number {
+		const rgb = Number.parseInt(hex.slice(1), 16);
+		return (0xff << 24 | (rgb & 0xff) << 16 | (rgb >> 8 & 0xff) << 8 | rgb >> 16) >>> 0;
 	}
 
 	private drawWorldMap(p: p5, cam: Camera): void {
-		if (this.worldOffscreenDirty) this.buildWorldCanvas();
-		if (!this.worldOffscreenCanvas || this.worldWidth === 0) return;
+		if (!this.worldCanvas || !this.worldImage) return;
+
+		if (this.worldDirtyMinX <= this.worldDirtyMaxX) {
+			const { worldDirtyMinX: x, worldDirtyMinY: y } = this;
+			this.worldCanvas.getContext('2d')!.putImageData(
+				this.worldImage, 0, 0, x, y, this.worldDirtyMaxX - x + 1, this.worldDirtyMaxY - y + 1
+			);
+			this.worldDirtyMinX = this.worldDirtyMinY = Infinity;
+			this.worldDirtyMaxX = this.worldDirtyMaxY = -1;
+		}
 
 		const ctx = p.drawingContext as CanvasRenderingContext2D;
+		const cs = this.cellSize;
+		const viewCells = 1 / (cam.zoom * cs);
+		ctx.save();
+		ctx.imageSmoothingEnabled = false;
 		ctx.drawImage(
-			this.worldOffscreenCanvas,
-			cam.offsetX, cam.offsetY, p.width / cam.zoom, p.height / cam.zoom,
+			this.worldCanvas,
+			cam.offsetX / cs, cam.offsetY / cs, p.width * viewCells, p.height * viewCells,
 			0, 0, p.width, p.height
 		);
+		ctx.restore();
 	}
 }
