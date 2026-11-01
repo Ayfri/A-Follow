@@ -8,6 +8,7 @@ import { TerrainType } from './core/TerrainType';
 import { type ColorTheme, DEFAULT_THEME } from './core/Theme';
 import type { WorldGenOptions } from './generators/WorldMapGenerator';
 import { Sidebar } from './ui/Sidebar';
+import { wheelZoomFactor } from './utils/wheelZoomFactor';
 import './style.css';
 
 const grid = new Grid(20);
@@ -23,8 +24,6 @@ let mouseCell: Position = { x: -1, y: -1 };
 let pan: { x: number; y: number; offX: number; offY: number } | null = null;
 
 const PAN_SPEED = 400; // world px / sec
-const ZOOM_IN = 1.1;
-const ZOOM_OUT = 0.9;
 
 const sketch = (p: p5) => {
 	let sidebar: Sidebar;
@@ -86,8 +85,10 @@ const sketch = (p: p5) => {
 		const inMapMode = grid.isWorldMapMode();
 		const dt = p.deltaTime / 1000; // seconds
 
-		// ── Arrow-key camera pan (map mode only) ─────────────────────────────
+		// ── Smooth zoom and arrow-key camera pan (map mode only) ─────────────
 		if (inMapMode) {
+			if (camera.update(dt)) sidebar.updateZoomDisplay(camera.zoom);
+
 			const speed = PAN_SPEED / camera.zoom;
 			let dx = 0;
 			let dy = 0;
@@ -95,10 +96,7 @@ const sketch = (p: p5) => {
 			if (p.keyIsDown(p.RIGHT_ARROW)) dx += speed * dt;
 			if (p.keyIsDown(p.UP_ARROW))    dy -= speed * dt;
 			if (p.keyIsDown(p.DOWN_ARROW))  dy += speed * dt;
-			if (dx !== 0 || dy !== 0) {
-				camera.pan(dx, dy);
-				sidebar.updateZoomDisplay(camera.zoom);
-			}
+			if (dx !== 0 || dy !== 0) camera.pan(dx, dy);
 		}
 
 		// ── Draw world ───────────────────────────────────────────────────────
@@ -130,7 +128,6 @@ const sketch = (p: p5) => {
 				pan.offX + (pan.x - p.mouseX) / camera.zoom,
 				pan.offY + (pan.y - p.mouseY) / camera.zoom
 			);
-			sidebar.updateZoomDisplay(camera.zoom);
 			return;
 		}
 
@@ -165,11 +162,10 @@ const sketch = (p: p5) => {
 	};
 
 	p.mouseWheel = (event: WheelEvent) => {
-		if (grid.isWorldMapMode()) {
-			const factor = event.deltaY > 0 ? ZOOM_OUT : ZOOM_IN;
-			camera.setZoom(camera.zoom * factor, p.mouseX, p.mouseY);
-			sidebar.updateZoomDisplay(camera.zoom);
-		}
+		if (!grid.isWorldMapMode()) return;
+
+		camera.smoothZoomAt(wheelZoomFactor(event, p.height), p.mouseX, p.mouseY);
+		return false;
 	};
 
 	p.windowResized = () => {
