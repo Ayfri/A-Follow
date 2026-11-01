@@ -34,7 +34,8 @@ export class GridRenderer {
 		if (color !== this.color) {
 			this.color = color;
 			this.packed = GridRenderer.packColor(color);
-			this.cache.clear();
+			/** Entries are marked stale instead of dropped: dragging a color picker fires many changes and would recreate every canvas each time. */
+			for (const entry of this.cache.values()) entry.version = -1;
 		}
 
 		const view = camera.visibleRect();

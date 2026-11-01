@@ -10,7 +10,7 @@ export class Player {
 	private path: readonly Position[] = [];
 	private currentPathIndex = 0;
 
-	constructor(speed = 8) {
+	constructor(speed: number) {
 		this.speed = speed;
 	}
 
@@ -44,12 +44,15 @@ export class Player {
 	}
 
 	draw(p: p5, camera: Camera, playerColor: string): void {
-		const center = camera.cellToScreen(this.x + 0.5, this.y + 0.5);
-		const size = Math.max(camera.scale, 4);
+		const { scale, offsetX, offsetY } = camera;
+		/** Centered on the cell's pixel rect, rounded like the walls, so the player never sits off the grid at fractional zoom. */
+		const centerX = (Math.round((this.x - offsetX) * scale) + Math.round((this.x + 1 - offsetX) * scale)) / 2;
+		const centerY = (Math.round((this.y - offsetY) * scale) + Math.round((this.y + 1 - offsetY) * scale)) / 2;
+		const size = Math.max(scale, 4);
 
 		p.fill(playerColor);
 		p.noStroke();
-		p.ellipse(center.x, center.y, size, size);
+		p.ellipse(centerX, centerY, size, size);
 	}
 
 	setSpeed(speed: number): void { this.speed = speed; }
