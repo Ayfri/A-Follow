@@ -1,5 +1,7 @@
-import { ChevronLeft, ChevronRight, Eraser, LocateFixed, Route, Shuffle } from 'lucide';
+import { ChevronLeft, ChevronRight, Eraser, type IconNode, LocateFixed, Route, Shuffle } from 'lucide';
 import { Camera } from '../core/Camera';
+import type { Generation } from '../core/pathMessages';
+import type { PathPreview } from '../core/PathPreview';
 import type { Player } from '../core/Player';
 import type { ColorTheme } from '../core/Theme';
 import type { WallGrid } from '../core/WallGrid';
@@ -15,6 +17,7 @@ export interface SidebarHost {
 	readonly camera: Camera;
 	readonly player: Player;
 	readonly theme: ColorTheme;
+	readonly preview: PathPreview;
 }
 
 const SPEED_STEPS = 40;
@@ -70,6 +73,7 @@ export class Sidebar {
 	private readonly zoom: RangeField;
 	private readonly collapseButton: Button;
 	private readonly inner: HTMLDivElement;
+	private readonly generateButtons: Button[] = [];
 	private collapsed = false;
 	private shownZoom = Number.NaN;
 
@@ -143,7 +147,7 @@ export class Sidebar {
 	}
 
 	private buildGeneral(): Node[] {
-		const { grid, camera, player } = this.host;
+		const { grid, camera, player, preview } = this.host;
 
 		const speed = new RangeField({
 			label: 'Speed',
@@ -190,13 +194,27 @@ export class Sidebar {
 			Sidebar.section('Player', speed.element),
 			Sidebar.section('Grid', cellSize.element, this.gridToggle.element, this.snapToggle.element),
 			Sidebar.section('Maze',
-				new Button('Generate Maze', () => grid.fillMaze(camera.visibleRect()), { icon: Route }).element,
+				this.generateButton('Generate Maze', Route, () => ({ kind: 'maze' })).element,
 				probability.element,
-				new Button('Random Grid', () => grid.fillRandom(camera.visibleRect(), probability.value), { icon: Shuffle }).element,
-				new Button('Clear', () => grid.clear(), { icon: Eraser }).element
+				this.generateButton('Random Grid', Shuffle, () => ({ kind: 'random', probability: probability.value })).element,
+				new Button('Clear', () => { preview.cancelGeneration(); grid.clear(); }, { icon: Eraser }).element
 			),
 			Sidebar.section('Camera', this.zoom.element, resetView.element)
 		];
+	}
+
+	/** Both generate buttons are disabled while a fill is pending, so a second click can't replace the first one mid-way. */
+	private generateButton(label: string, icon: IconNode, generation: () => Generation): Button {
+		const button = new Button(label, async () => {
+			for (const other of this.generateButtons) other.element.disabled = true;
+			try {
+				await this.host.preview.generate(this.host.camera.visibleRect(), generation());
+			} finally {
+				for (const other of this.generateButtons) other.element.disabled = false;
+			}
+		}, { icon });
+		this.generateButtons.push(button);
+		return button;
 	}
 
 	private buildTheme(): Node[] {

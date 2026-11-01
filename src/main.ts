@@ -53,7 +53,7 @@ const sketch = (p: p5) => {
 		camera.centerOn(0, 0);
 
 		/** After the camera has a screen size: the cell size field calls `camera.setCellSize` while restoring its saved value. */
-		sidebar = new Sidebar({ grid, camera, player, theme });
+		sidebar = new Sidebar({ grid, camera, player, theme, preview: pathPreview });
 		document.body.append(sidebar.element);
 	};
 

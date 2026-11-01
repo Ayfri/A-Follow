@@ -18,7 +18,16 @@ export interface FindRequest {
 	snap: boolean;
 }
 
-export type WorkerRequest = GridMessage | FindRequest;
+export type Generation = { kind: 'maze' } | { kind: 'random'; probability: number };
+
+export interface GenerateRequest {
+	type: 'generate';
+	id: number;
+	rect: CellRect;
+	generation: Generation;
+}
+
+export type WorkerRequest = GridMessage | FindRequest | GenerateRequest;
 
 /**
  * `path` holds (x, y) pairs and is null when there is no path. A typed array is transferred for free, where cloning a Position[]
@@ -26,6 +35,17 @@ export type WorkerRequest = GridMessage | FindRequest;
  * into objects took ~42 ms (max 65) on the main thread in V8.
  */
 export interface FindResult {
+	type: 'path';
 	id: number;
 	path: Int32Array<ArrayBuffer> | null;
 }
+
+/** Applied by the main thread with writeRect; the mirror gets it back through GridSync like any fill, so revisions stay in order. */
+export interface GenerateResult {
+	type: 'generated';
+	id: number;
+	rect: CellRect;
+	cells: Uint8Array<ArrayBuffer>;
+}
+
+export type WorkerResponse = FindResult | GenerateResult;

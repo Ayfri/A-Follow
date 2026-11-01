@@ -1,7 +1,7 @@
 import type { Camera } from './Camera';
 import { GridSync } from './GridSync';
 import { PathFinder } from './PathFinder';
-import type { FindRequest, FindResult } from './pathMessages';
+import type { FindRequest, FindResult, GenerateRequest, Generation, WorkerResponse } from './pathMessages';
 import type { Player } from './Player';
 import type { CellRect, Position, WallGrid } from './WallGrid';
 
@@ -9,6 +9,7 @@ import type { CellRect, Position, WallGrid } from './WallGrid';
  * Path from the player to the target cell, recomputed only when the target cell, the walls or the snap option change.
  * A nearby target is answered on the spot by a small search; the others go to a worker that searches the whole window
  * and keeps only the newest request, while the player keeps walking its current path.
+ * The same worker builds mazes and random grids (`generate`), so a fill never blocks the page: the cells come back and are written here.
  */
 export class PathPreview {
 	private readonly grid: WallGrid;
@@ -26,13 +27,43 @@ export class PathPreview {
 	/** Where the pending request starts: the player's cell then, and its index on the path it was walking. */
 	private requestStart: Position = { x: 0, y: 0 };
 	private requestIndex = 0;
+	/** The only fill whose result is still wanted, with the function that settles its promise. */
+	private generation: { id: number; settle: () => void } | null = null;
 
 	/** Takes over `grid.observer`: the worker's mirror of the walls is fed from it. */
 	constructor(grid: WallGrid) {
 		this.grid = grid;
 		this.sync = new GridSync((message, transfer) => this.worker.postMessage(message, transfer));
 		grid.observer = this.sync;
-		this.worker.addEventListener('message', (event: MessageEvent<FindResult>) => { this.arrived = event.data; });
+		this.worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
+			const message = event.data;
+			if (message.type === 'path') {
+				this.arrived = message;
+				return;
+			}
+			const pending = this.generation;
+			if (pending === null || pending.id !== message.id) return;
+			this.generation = null;
+			this.grid.writeRect(message.rect, message.cells);
+			pending.settle();
+		});
+	}
+
+	/** Replaces `rect` with a generated maze or random grid: resolves once the worker's cells are written, or when `cancelGeneration` drops them. */
+	generate(rect: CellRect, generation: Generation): Promise<void> {
+		this.cancelGeneration();
+		const { promise, resolve } = Promise.withResolvers<void>();
+		const id = ++this.lastId;
+		this.generation = { id, settle: resolve };
+		const request: GenerateRequest = { type: 'generate', id, rect: { ...rect }, generation };
+		this.worker.postMessage(request);
+		return promise;
+	}
+
+	/** Drops the pending fill: its cells are ignored when they arrive. */
+	cancelGeneration(): void {
+		this.generation?.settle();
+		this.generation = null;
 	}
 
 	/**

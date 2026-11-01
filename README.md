@@ -11,7 +11,7 @@ Live demo: [afollow.ayfri.com](https://afollow.ayfri.com/)
 - **Build mode**: toggle it with `B`. With build mode off, a left drag pans instead of drawing.
 - **A* in a bounded window**: the search covers the visible area plus a margin and runs in a worker, so a long path never freezes the page, and a target that is walled in is rejected without searching.
 - **Smooth zoom**: the wheel zooms from 25% to 400% around the cursor with an eased animation.
-- **Maze and random grid generators** that fill the visible area.
+- **Maze and random grid generators** that fill the visible area, built in the path worker.
 - **Themes and settings** saved in localStorage, with a collapsible sidebar.
 
 ## Controls
@@ -48,7 +48,7 @@ Every setting below is saved in localStorage, except the zoom, which starts at 1
 | Camera | Reset view | Centers the camera on the player at zoom 100% |
 | Theme | Background, Wall, Path, Grid Lines, Player | One color picker each |
 
-Generate Maze and Random Grid act on the visible area, including the part under the sidebar. Walls outside it stay as they are. Clear acts on the whole grid.
+Generate Maze and Random Grid act on the visible area, including the part under the sidebar. Walls outside it stay as they are. The path worker builds the cells, so the page stays responsive on a large view: both buttons are disabled until the fill is written, and Clear cancels a fill that is still pending. Clear acts on the whole grid.
 
 ## How it works
 

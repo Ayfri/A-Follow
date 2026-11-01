@@ -108,9 +108,8 @@ export class WallGrid {
 		});
 	}
 
-	/** Replaces `rect` with a random depth-first maze whose odd local cells are open; a rect under 3 cells wide or tall becomes solid. */
-	fillMaze(rect: CellRect): void {
-		const { width: W, height: H } = rect;
+	/** Random depth-first maze, row-major (1 = wall), whose odd local cells are open; under 3 cells wide or tall it is solid. */
+	static mazeCells(W: number, H: number): Uint8Array<ArrayBuffer> {
 		const cells = new Uint8Array(W * H).fill(1);
 
 		if (W >= 3 && H >= 3) {
@@ -146,13 +145,23 @@ export class WallGrid {
 			}
 		}
 
-		this.writeRect(rect, cells);
+		return cells;
+	}
+
+	/** Row-major (1 = wall), each cell a wall with `probability`. */
+	static randomCells(width: number, height: number, probability: number): Uint8Array<ArrayBuffer> {
+		const cells = new Uint8Array(width * height);
+		for (let i = 0; i < cells.length; i++) cells[i] = Math.random() < probability ? 1 : 0;
+		return cells;
+	}
+
+	/** Replaces `rect` with a maze (see `mazeCells`). */
+	fillMaze(rect: CellRect): void {
+		this.writeRect(rect, WallGrid.mazeCells(rect.width, rect.height));
 	}
 
 	fillRandom(rect: CellRect, probability: number): void {
-		const cells = new Uint8Array(rect.width * rect.height);
-		for (let i = 0; i < cells.length; i++) cells[i] = Math.random() < probability ? 1 : 0;
-		this.writeRect(rect, cells);
+		this.writeRect(rect, WallGrid.randomCells(rect.width, rect.height, probability));
 	}
 
 	clear(): void {

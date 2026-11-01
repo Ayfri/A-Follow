@@ -1,7 +1,7 @@
 import { Connectivity } from './Connectivity';
 import { GridSync } from './GridSync';
 import { PathFinder } from './PathFinder';
-import type { FindRequest, FindResult, WorkerRequest } from './pathMessages';
+import type { FindRequest, FindResult, GenerateRequest, GenerateResult, WorkerRequest } from './pathMessages';
 import { type Position, WallGrid } from './WallGrid';
 
 /** This module and its imports never touch the DOM or p5: they have to load in a worker. */
@@ -20,7 +20,13 @@ const yieldToMessages = (): Promise<void> => new Promise((resolve) => {
 
 const reply = (id: number, path: Position[] | null): void => {
 	const packed = path && PathFinder.pack(path);
-	self.postMessage({ id, path: packed } satisfies FindResult, { transfer: packed ? [packed.buffer] : [] });
+	self.postMessage({ type: 'path', id, path: packed } satisfies FindResult, { transfer: packed ? [packed.buffer] : [] });
+};
+
+/** The cells go to the main thread, which writes them: the mirror receives them back like any fill, so its revisions stay in order. */
+const generate = ({ id, rect, generation }: GenerateRequest): void => {
+	const cells = generation.kind === 'maze' ? WallGrid.mazeCells(rect.width, rect.height) : WallGrid.randomCells(rect.width, rect.height, generation.probability);
+	self.postMessage({ type: 'generated', id, rect, cells } satisfies GenerateResult, { transfer: [cells.buffer] });
 };
 
 const run = async (): Promise<void> => {
@@ -45,6 +51,10 @@ const run = async (): Promise<void> => {
 
 self.addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
 	const message = event.data;
+	if (message.type === 'generate') {
+		generate(message);
+		return;
+	}
 	if (message.type !== 'find') {
 		GridSync.apply(grid, message);
 		return;

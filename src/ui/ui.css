@@ -290,11 +290,16 @@
 	transition: background-color var(--ui-ease), border-color var(--ui-ease);
 }
 
-.button:hover {
+.button:disabled {
+	opacity: .5;
+	cursor: progress;
+}
+
+.button:hover:not(:disabled) {
 	background: var(--ui-surface-hover);
 }
 
-.button:active {
+.button:active:not(:disabled) {
 	translate: 0 1px;
 }
 
