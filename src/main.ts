@@ -8,6 +8,7 @@ import { type ColorTheme, DEFAULT_THEME } from './core/Theme';
 import { WallGrid } from './core/WallGrid';
 import { Sidebar } from './ui/Sidebar';
 import { wheelZoomFactor } from './utils/wheelZoomFactor';
+import './ui/ui.css';
 import './style.css';
 
 const grid = new WallGrid();
@@ -20,7 +21,7 @@ const pathPreview = new PathPreview();
 
 /** Cell under the cursor when a pan started, kept under the cursor while dragging. */
 let pan: { cellX: number; cellY: number } | null = null;
-/** False until the first pointer event: p5 reports the mouse at (0, 0) before that, which isn't a real target. */
+/** False until the first pointer move over the canvas (p5 reports the mouse at (0, 0) before that) and while the pointer is off it. */
 let hovering = false;
 
 /** Screen pixels per second, so arrow panning feels the same at every zoom and cell size. */
@@ -34,19 +35,25 @@ const sketch = (p: p5) => {
 	p.setup = () => {
 		canvas = p.createCanvas(p.windowWidth, p.windowHeight).elt;
 		canvas.addEventListener('contextmenu', event => event.preventDefault());
-		p.frameRate(60);
+		/**
+		 * p5 also updates mouseX and mouseY on pointerup, which the sidebar lets through (pointer.js:1382-1389), so after a click on a
+		 * control the position sits under the panel. Hovering ends when the pointer leaves the canvas and resumes with the next move over it.
+		 */
+		canvas.addEventListener('pointerleave', () => { hovering = false; });
 
 		camera.setScreenSize(p.width, p.height);
 		camera.centerOn(0, 0);
 
 		/** After the camera has a screen size: the cell size field calls `camera.setCellSize` while restoring its saved value. */
-		sidebar = new Sidebar(p, player, grid, camera, theme);
-		sidebar.init();
+		sidebar = new Sidebar({ grid, camera, player, theme });
+		document.body.append(sidebar.element);
 	};
 
 	p.draw = () => {
-		const dt = p.deltaTime / 1000;
+		/** A tab hidden for a while returns a huge deltaTime, which would turn a held arrow key into one giant pan step. */
+		const dt = Math.min(p.deltaTime, 100) / 1000;
 		camera.update(dt);
+		sidebar.sync();
 
 		const step = PAN_SPEED * dt / camera.scale;
 		let dx = 0;
@@ -66,12 +73,12 @@ const sketch = (p: p5) => {
 		}
 		pathPreview.draw(ctx, camera, player, theme.path);
 
-		if (sidebar.showGridColor) renderer.drawLines(ctx, camera, theme.grid);
+		if (sidebar.showGrid) renderer.drawLines(ctx, camera, theme.grid);
 
 		player.draw(p, camera, theme.player);
 		player.update(p);
 
-		const wanted = pan ? 'grabbing' : 'crosshair';
+		const wanted = pan ? 'grabbing' : sidebar.build && !p.keyIsDown('Space') ? 'crosshair' : 'grab';
 		if (wanted !== cursor) {
 			canvas.style.cursor = wanted;
 			cursor = wanted;
@@ -86,11 +93,17 @@ const sketch = (p: p5) => {
 		hovering = true;
 
 		const { left, right, center } = p.mouseButton;
-		if (center || (left && p.keyIsDown('Space'))) {
+		if (center || (left && (p.keyIsDown('Space') || !sidebar.build))) {
 			const cell = camera.screenToCell(p.mouseX, p.mouseY);
 			pan = { cellX: cell.x, cellY: cell.y };
-		} else if (left || right) {
+		} else if (sidebar.build && (left || right)) {
 			drawing.begin(camera.cellAt(p.mouseX, p.mouseY), left);
+		}
+	};
+
+	p.keyPressed = (event?: KeyboardEvent) => {
+		if (event && !event.repeat && event.key.toLowerCase() === 'b' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+			sidebar.toggleBuild();
 		}
 	};
 

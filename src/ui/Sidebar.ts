@@ -1,329 +1,225 @@
-import { ChevronLeft, ChevronRight, createElement, type IconNode } from 'lucide';
-import type p5 from 'p5';
-import type { Camera } from '../core/Camera';
+import { ChevronLeft, ChevronRight, Eraser, LocateFixed, Route, Shuffle } from 'lucide';
+import { Camera } from '../core/Camera';
 import type { Player } from '../core/Player';
 import type { ColorTheme } from '../core/Theme';
 import type { WallGrid } from '../core/WallGrid';
-import { Checkbox } from './inputs/Checkbox';
-import { ColorInput } from './inputs/ColorInput';
-import { Slider } from './inputs/Slider';
+import { Setting } from '../utils/Setting';
+import { Button } from './Button';
+import { ColorField } from './fields/ColorField';
+import { RangeField } from './fields/RangeField';
+import { ToggleField } from './fields/ToggleField';
+import { Tabs } from './Tabs';
 
-const ICON_ATTRS = { width: 14, height: 14 };
+export interface SidebarHost {
+	readonly grid: WallGrid;
+	readonly camera: Camera;
+	readonly player: Player;
+	readonly theme: ColorTheme;
+}
 
-type Tab = 'general' | 'theme';
+const SPEED_STEPS = 40;
+const MAX_SPEED = 5000;
 
-const TAB_LABELS: Record<Tab, string> = {
-	general: 'General',
-	theme: 'Theme',
+/** Speed is stored as a step index 1..40 on a log scale from 1 to 5000 cells/s, so every range of speeds is easy to reach. */
+const speedFromIndex = (index: number): number => MAX_SPEED ** ((index - 1) / (SPEED_STEPS - 1));
+const indexFromSpeed = (speed: number): number => Math.round(Math.log(speed) / Math.log(MAX_SPEED) * (SPEED_STEPS - 1) + 1);
+
+const formatSpeed = (index: number): string => {
+	const speed = speedFromIndex(index);
+	const text = speed < 10 ? speed.toFixed(1) : speed < 1000 ? speed.toFixed(0) : `${(speed / 1000).toFixed(1)}k`;
+	return `${text} cells/s`;
 };
 
+const THEME_COLORS: readonly { key: keyof ColorTheme; storage: string; label: string }[] = [
+	{ key: 'background', storage: 'bg', label: 'Background' },
+	{ key: 'wall', storage: 'wall', label: 'Wall' },
+	{ key: 'path', storage: 'path', label: 'Path' },
+	{ key: 'grid', storage: 'grid', label: 'Grid Lines' },
+	{ key: 'player', storage: 'player', label: 'Player' }
+];
+
+const HINTS: readonly (readonly [keys: readonly string[], action: string])[] = [
+	[['B'], 'Toggle build mode'],
+	[['Left drag'], 'Draw walls, or pan when not building'],
+	[['Right drag'], 'Erase walls'],
+	[['Shift + drag'], 'Straight line'],
+	[['Middle drag', 'Space + drag', 'Arrows'], 'Pan'],
+	[['Wheel'], 'Zoom']
+];
+
+/** Controls keep the keys they use; other keys on a plain button still reach p5, so arrows pan right after clicking Generate Maze. */
+const consumed = (event: KeyboardEvent): boolean =>
+	!(event.target instanceof HTMLButtonElement) || event.target.role === 'tab' || event.key === ' ' || event.key === 'Enter';
+
 export class Sidebar {
-	// Public state consumed by main.ts
-	public showGridColor = true;
-	public snapToNearest = false;
+	readonly element: HTMLElement;
+	private readonly host: SidebarHost;
+	private readonly buildToggle: ToggleField;
+	private readonly gridToggle: ToggleField;
+	private readonly snapToggle: ToggleField;
+	private readonly zoom: RangeField;
+	private readonly collapseButton: Button;
+	private readonly inner: HTMLDivElement;
+	private collapsed = false;
+	private shownZoom = Number.NaN;
 
-	private p: p5;
-	private player: Player;
-	private grid: WallGrid;
-	private camera: Camera;
-	private theme: ColorTheme;
+	constructor(host: SidebarHost) {
+		this.host = host;
+		const { camera } = host;
 
-	private container!: p5.Element;
-	private tabBar!: p5.Element;
-	private contentArea!: p5.Element;
-	private collapseBtn!: p5.Element;
-	private isCollapsed = false;
-	private tabPanes: Partial<Record<Tab, p5.Element>> = {};
-
-	constructor(p: p5, player: Player, grid: WallGrid, camera: Camera, theme: ColorTheme) {
-		this.p = p;
-		this.player = player;
-		this.grid = grid;
-		this.camera = camera;
-		this.theme = theme;
-	}
-
-	init(): void {
-		this.buildShell();
-		this.buildTabBar();
-		this.buildAllPanes();
-		this.showTab('general');
-	}
-
-	// ─── Shell ───────────────────────────────────────────────────────────────
-
-	private buildShell(): void {
-		this.container = this.p.createDiv('');
-		this.container.style('position', 'fixed');
-		this.container.style('top', '0');
-		this.container.style('left', '0');
-		this.container.style('height', '100vh');
-		this.container.style('width', '300px');
-		this.container.style('background', 'rgba(15, 15, 20, 0.92)');
-		this.container.style('backdrop-filter', 'blur(6px)');
-		this.container.style('display', 'flex');
-		this.container.style('flex-direction', 'column');
-		this.container.style('z-index', '1000');
-		this.container.style('font-family', 'system-ui, sans-serif');
-		this.container.style('font-size', '13px');
-		this.container.style('color', 'white');
-		this.container.style('border-right', '1px solid rgba(255,255,255,0.08)');
-		this.container.style('transition', 'width 0.2s ease');
-
-		// Prevent canvas events from bleeding through the sidebar
-		this.container.elt.addEventListener('mousedown', (e: Event) => e.stopPropagation());
-		this.container.elt.addEventListener('wheel', (e: Event) => e.stopPropagation());
-
-		// Collapse toggle button (top-right corner)
-		this.collapseBtn = this.p.createDiv('');
-		this.collapseBtn.parent(this.container);
-		this.collapseBtn.style('position', 'absolute');
-		this.collapseBtn.style('top', '8px');
-		this.collapseBtn.style('right', '-14px');
-		this.collapseBtn.style('width', '28px');
-		this.collapseBtn.style('height', '28px');
-		this.collapseBtn.style('background', 'rgba(30,30,40,0.95)');
-		this.collapseBtn.style('border', '1px solid rgba(255,255,255,0.12)');
-		this.collapseBtn.style('border-radius', '0 6px 6px 0');
-		this.collapseBtn.style('cursor', 'pointer');
-		this.collapseBtn.style('display', 'flex');
-		this.collapseBtn.style('align-items', 'center');
-		this.collapseBtn.style('justify-content', 'center');
-		this.collapseBtn.style('z-index', '1001');
-		this.collapseBtn.elt.append(createElement(ChevronLeft, ICON_ATTRS));
-		this.collapseBtn.elt.addEventListener('click', () => this.toggleCollapse());
-
-		// Tab bar header
-		this.tabBar = this.p.createDiv('');
-		this.tabBar.parent(this.container);
-		this.tabBar.style('display', 'flex');
-		this.tabBar.style('gap', '4px');
-		this.tabBar.style('padding', '10px 10px 0');
-		this.tabBar.style('flex-shrink', '0');
-		this.tabBar.style('flex-wrap', 'wrap');
-
-		// Scrollable content area
-		this.contentArea = this.p.createDiv('');
-		this.contentArea.parent(this.container);
-		this.contentArea.style('flex', '1');
-		this.contentArea.style('overflow-y', 'auto');
-		this.contentArea.style('padding', '14px 14px 20px');
-		this.contentArea.style('scrollbar-width', 'thin');
-		this.contentArea.style('scrollbar-color', 'rgba(255,255,255,0.15) transparent');
-	}
-
-	// ─── Tab bar ─────────────────────────────────────────────────────────────
-
-	private buildTabBar(): void {
-		for (const id of Object.keys(TAB_LABELS) as Tab[]) {
-			const btn = this.p.createDiv(TAB_LABELS[id]);
-			btn.parent(this.tabBar);
-			btn.attribute('data-tab', id);
-			this.styleTabButton(btn);
-			btn.elt.addEventListener('click', () => this.showTab(id));
-		}
-	}
-
-	private styleTabButton(btn: p5.Element): void {
-		btn.style('padding', '5px 10px');
-		btn.style('border-radius', '6px');
-		btn.style('cursor', 'pointer');
-		btn.style('font-size', '12px');
-		btn.style('font-weight', 'normal');
-		btn.style('background', 'rgba(255,255,255,0.07)');
-		btn.style('color', 'white');
-		btn.style('user-select', 'none');
-		btn.style('white-space', 'nowrap');
-	}
-
-	private showTab(tab: Tab): void {
-		// Update tab button styles via direct DOM
-		const btns = this.tabBar.elt.querySelectorAll<HTMLElement>('[data-tab]');
-		btns.forEach((btn) => {
-			const isActive = btn.dataset.tab === tab;
-			btn.style.fontWeight = isActive ? 'bold' : 'normal';
-			btn.style.background = isActive ? '#2563eb' : 'rgba(255,255,255,0.07)';
-		});
-		// Show/hide panes
-		for (const [id, pane] of Object.entries(this.tabPanes)) {
-			if (pane) pane.style('display', id === tab ? 'block' : 'none');
-		}
-	}
-
-	// ─── Pane builder helpers ─────────────────────────────────────────────────
-
-	private createPane(tab: Tab): p5.Element {
-		const pane = this.p.createDiv('');
-		pane.parent(this.contentArea);
-		pane.style('display', 'none');
-		this.tabPanes[tab] = pane;
-		return pane;
-	}
-
-	private sectionTitle(parent: p5.Element, text: string): void {
-		const h = this.p.createElement('h3', text);
-		h.parent(parent);
-		h.style('margin', '0 0 12px 0');
-		h.style('font-size', '13px');
-		h.style('font-weight', '600');
-		h.style('text-transform', 'uppercase');
-		h.style('letter-spacing', '0.08em');
-		h.style('color', 'rgba(255,255,255,0.45)');
-		h.style('border-bottom', '1px solid rgba(255,255,255,0.08)');
-		h.style('padding-bottom', '6px');
-	}
-
-	private spacer(parent: p5.Element): void {
-		const s = this.p.createDiv('');
-		s.parent(parent);
-		s.style('height', '16px');
-	}
-
-	// ─── All panes ────────────────────────────────────────────────────────────
-
-	private buildAllPanes(): void {
-		this.buildGeneralPane();
-		this.buildThemePane();
-	}
-
-	private buildGeneralPane(): void {
-		const pane = this.createPane('general');
-
-		this.sectionTitle(pane, 'Player');
-		const speedSlider = new Slider(this.p, {
-			label: 'Speed',
-			min: 1,
-			max: 40,
-			defaultValue: Math.round(Math.log(this.player.getSpeed()) / Math.log(200) * 39 + 1),
+		this.buildToggle = new ToggleField({ label: 'Build', setting: Setting.boolean('build-mode', true) });
+		this.gridToggle = new ToggleField({ label: 'Show grid lines', setting: Setting.boolean('show-grid-color', true) });
+		this.snapToggle = new ToggleField({ label: 'Snap to nearest tile', setting: Setting.boolean('snap-to-nearest-tile', false) });
+		this.zoom = new RangeField({
+			label: 'Zoom',
+			initial: 100,
+			min: Camera.MIN_ZOOM * 100,
+			max: Camera.MAX_ZOOM * 100,
 			step: 1,
-			storageKey: 'player-speed-log',
-			valueFormatter: (v) => v.toFixed(1),
-			onChange: (v) => {
-				const speed = Math.pow(200, (v - 1) / 39);
-				this.player.setSpeed(speed);
-			}
+			format: (value) => `${value}%`,
+			onChange: (value) => camera.setZoom(value / 100)
 		});
-		speedSlider.init(pane);
+		this.collapseButton = new Button('Collapse panel', () => this.toggleCollapse(), { icon: ChevronLeft, iconOnly: true });
+		this.collapseButton.element.classList.add('sidebar__toggle');
+		this.collapseButton.element.ariaExpanded = 'true';
+		this.collapseButton.element.setAttribute('aria-controls', 'sidebar-inner');
 
-		this.spacer(pane);
-		this.sectionTitle(pane, 'Grid');
+		const tabs = new Tabs<'general' | 'theme'>({
+			general: { label: 'General', content: this.buildGeneral() },
+			theme: { label: 'Theme', content: this.buildTheme() }
+		}, 'general');
 
-		const gridSizeSlider = new Slider(this.p, {
+		this.inner = Object.assign(document.createElement('div'), { className: 'sidebar__inner', id: 'sidebar-inner' });
+		const header = Object.assign(document.createElement('header'), { className: 'sidebar__header' });
+		const body = Object.assign(document.createElement('div'), { className: 'sidebar__body' });
+		header.append(tabs.list);
+		body.append(tabs.panels);
+		this.inner.append(header, body);
+
+		this.element = Object.assign(document.createElement('aside'), { className: 'sidebar', ariaLabel: 'Settings' });
+		this.element.append(this.collapseButton.element, this.inner);
+		this.isolateEvents();
+		this.sync();
+	}
+
+	get build(): boolean {
+		return this.buildToggle.value;
+	}
+
+	get showGrid(): boolean {
+		return this.gridToggle.value;
+	}
+
+	get snapToNearest(): boolean {
+		return this.snapToggle.value;
+	}
+
+	toggleBuild(): void {
+		this.buildToggle.apply(!this.buildToggle.value);
+	}
+
+	/** Call once per frame: mirrors the animated zoom into the zoom field, touching the DOM only when the shown percentage changes. */
+	sync(): void {
+		const percent = Math.round(this.host.camera.zoom * 100);
+		if (percent === this.shownZoom) return;
+		this.shownZoom = percent;
+		this.zoom.value = percent;
+	}
+
+	static section(title: string, ...children: Node[]): HTMLElement {
+		const section = Object.assign(document.createElement('section'), { className: 'section' });
+		section.append(Object.assign(document.createElement('h3'), { className: 'section__title', textContent: title }), ...children);
+		return section;
+	}
+
+	private buildGeneral(): Node[] {
+		const { grid, camera, player } = this.host;
+
+		const speed = new RangeField({
+			label: 'Speed',
+			setting: Setting.number('player-speed-log', indexFromSpeed(player.getSpeed())),
+			min: 1,
+			max: SPEED_STEPS,
+			step: 1,
+			format: formatSpeed,
+			onChange: (index) => player.setSpeed(speedFromIndex(index))
+		});
+		const cellSize = new RangeField({
 			label: 'Cell Size',
+			setting: Setting.number('grid-size', camera.cellSize),
 			min: 3,
 			max: 60,
-			defaultValue: this.camera.cellSize,
 			step: 1,
-			storageKey: 'grid-size',
-			onChange: (size) => this.camera.setCellSize(size)
+			format: (value) => `${value} px`,
+			onChange: (size) => camera.setCellSize(size)
 		});
-		gridSizeSlider.init(pane);
-
-		const showGridCheckbox = new Checkbox(this.p, {
-			label: 'Show grid lines',
-			defaultValue: true,
-			storageKey: 'show-grid-color',
-			onChange: (v) => { this.showGridColor = v; }
-		});
-		showGridCheckbox.init(pane);
-		this.showGridColor = showGridCheckbox.getValue();
-
-		const snapCheckbox = new Checkbox(this.p, {
-			label: 'Snap to nearest tile',
-			defaultValue: false,
-			storageKey: 'snap-to-nearest-tile',
-			onChange: (v) => { this.snapToNearest = v; }
-		});
-		snapCheckbox.init(pane);
-		this.snapToNearest = snapCheckbox.getValue();
-
-		this.spacer(pane);
-		this.sectionTitle(pane, 'Maze');
-
-		this.makeBtn(pane, 'Generate Maze', () => this.grid.fillMaze(this.camera.visibleRect()));
-
-		const probSlider = new Slider(this.p, {
+		const probability = new RangeField({
 			label: 'Wall Probability',
+			setting: Setting.number('random-grid-probability', 0.2),
 			min: 0.05,
 			max: 0.6,
-			defaultValue: 0.2,
 			step: 0.025,
-			storageKey: 'random-grid-probability',
+			format: (value) => `${+(value * 100).toFixed(1)}%`
 		});
-		probSlider.init(pane);
+		const resetView = new Button('Reset view', () => {
+			const { x, y } = player.getPosition();
+			camera.centerOn(x, y);
+		}, { icon: LocateFixed });
 
-		this.makeBtn(pane, 'Random Grid', () => this.grid.fillRandom(this.camera.visibleRect(), probSlider.getValue()));
-	}
-
-	private buildThemePane(): void {
-		const pane = this.createPane('theme');
-
-		this.sectionTitle(pane, 'Theme Colors');
-
-		const THEME_COLORS: { key: keyof ColorTheme; storage: 'bg' | 'wall' | 'path' | 'grid' | 'player'; label: string }[] = [
-			{ key: 'background', storage: 'bg', label: 'Background' },
-			{ key: 'wall', storage: 'wall', label: 'Wall' },
-			{ key: 'path', storage: 'path', label: 'Path' },
-			{ key: 'grid', storage: 'grid', label: 'Grid Lines' },
-			{ key: 'player', storage: 'player', label: 'Player' },
-		];
-
-		for (const { key, storage, label } of THEME_COLORS) {
-			new ColorInput(this.p, {
-				label,
-				defaultValue: this.theme[key],
-				storageKey: `${storage}-color`,
-				onChange: (color) => { this.theme[key] = color; },
-			}).init(pane);
+		const hints = Object.assign(document.createElement('dl'), { className: 'hints' });
+		for (const [keys, action] of HINTS) {
+			const term = document.createElement('dt');
+			term.append(...keys.map((key) => Object.assign(document.createElement('kbd'), { textContent: key })));
+			const row = Object.assign(document.createElement('div'), { className: 'hints__row' });
+			row.append(term, Object.assign(document.createElement('dd'), { textContent: action }));
+			hints.append(row);
 		}
+
+		return [
+			Sidebar.section('Mode', this.buildToggle.element, hints),
+			Sidebar.section('Player', speed.element),
+			Sidebar.section('Grid', cellSize.element, this.gridToggle.element, this.snapToggle.element),
+			Sidebar.section('Maze',
+				new Button('Generate Maze', () => grid.fillMaze(camera.visibleRect()), { icon: Route }).element,
+				probability.element,
+				new Button('Random Grid', () => grid.fillRandom(camera.visibleRect(), probability.value), { icon: Shuffle }).element,
+				new Button('Clear', () => grid.clear(), { icon: Eraser }).element
+			),
+			Sidebar.section('Camera', this.zoom.element, resetView.element)
+		];
 	}
 
-	// ─── Private helpers ──────────────────────────────────────────────────────
-
-	private prependIcon(btn: p5.Element, icon: IconNode): void {
-		btn.style('display', 'inline-flex');
-		btn.style('align-items', 'center');
-		btn.style('gap', '6px');
-		btn.elt.prepend(createElement(icon, ICON_ATTRS));
+	private buildTheme(): Node[] {
+		const { theme } = this.host;
+		const fields = THEME_COLORS.map(({ key, storage, label }) => new ColorField({
+			label,
+			setting: Setting.color(`${storage}-color`, theme[key]),
+			onChange: (color) => { theme[key] = color; }
+		}));
+		return [Sidebar.section('Theme Colors', ...fields.map((field) => field.element))];
 	}
-
-	private makeBtn(parent: p5.Element, label: string, onClick: () => void, bg = '#3a3a4a', icon?: IconNode): p5.Element {
-		const btn = this.p.createButton(label);
-		btn.parent(parent);
-		btn.style('width', '100%');
-		btn.style('padding', '8px 12px');
-		btn.style('margin-bottom', '10px');
-		btn.style('border', 'none');
-		btn.style('border-radius', '6px');
-		btn.style('background', bg);
-		btn.style('color', 'white');
-		btn.style('cursor', 'pointer');
-		btn.style('font-size', '13px');
-		btn.style('font-weight', '500');
-		btn.style('text-align', 'left');
-		if (icon) this.prependIcon(btn, icon);
-		btn.elt.addEventListener('click', (e: Event) => { e.stopPropagation(); onClick(); });
-		btn.elt.addEventListener('mousedown', (e: Event) => e.stopPropagation());
-		return btn;
-	}
-
-	// ─── Collapse ─────────────────────────────────────────────────────────────
 
 	private toggleCollapse(): void {
-		this.isCollapsed = !this.isCollapsed;
-		if (this.isCollapsed) {
-			this.container.style('width', '0px');
-			this.tabBar.style('display', 'none');
-			this.contentArea.style('display', 'none');
-			this.collapseBtn.elt.replaceChildren(createElement(ChevronRight, ICON_ATTRS));
-			this.collapseBtn.style('right', '-28px');
-		} else {
-			this.container.style('width', '300px');
-			this.tabBar.style('display', 'flex');
-			this.contentArea.style('display', 'block');
-			this.collapseBtn.elt.replaceChildren(createElement(ChevronLeft, ICON_ATTRS));
-			this.collapseBtn.style('right', '-14px');
+		this.collapsed = !this.collapsed;
+		this.element.classList.toggle('sidebar--collapsed', this.collapsed);
+		this.inner.inert = this.collapsed;
+		this.collapseButton.element.ariaExpanded = String(!this.collapsed);
+		if (this.collapsed) this.collapseButton.setLabel('Expand panel', ChevronRight);
+		else this.collapseButton.setLabel('Collapse panel', ChevronLeft);
+	}
+
+	/**
+	 * p5 listens on `window` for pointerdown, pointermove, click, dblclick, wheel and dragover (node_modules/p5/dist/events/pointer.js:9-25)
+	 * and calls mousePressed without checking the target, so the panel stops them before they bubble up.
+	 * pointerup, pointercancel, dragend and keyup are never stopped: p5 must see every release, or the mouse button and
+	 * Shift (keyboard.js:24-36 listens on window too) stay stuck as pressed.
+	 */
+	private isolateEvents(): void {
+		const stop = (event: Event): void => event.stopPropagation();
+		for (const type of ['pointerdown', 'pointermove', 'click', 'dblclick', 'dragover']) this.element.addEventListener(type, stop);
+		this.element.addEventListener('wheel', stop, { passive: true });
+		for (const type of ['keydown', 'keypress'] as const) {
+			this.element.addEventListener(type, (event) => { if (consumed(event)) event.stopPropagation(); });
 		}
 	}
 }
-

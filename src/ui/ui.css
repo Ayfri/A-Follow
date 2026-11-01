@@ -1,0 +1,388 @@
+:root {
+	color-scheme: dark;
+	--ui-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--ui-font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+	--ui-text-xs: 11px;
+	--ui-text-sm: 12px;
+	--ui-text-md: 13px;
+	--ui-bg: rgb(14 17 27 / 0.94);
+	--ui-surface: #1b2030;
+	--ui-surface-hover: #252b3d;
+	--ui-track: #2c3347;
+	--ui-border: rgb(255 255 255 / 0.07);
+	--ui-border-strong: rgb(255 255 255 / 0.14);
+	--ui-fg: #e5e7ee;
+	--ui-fg-muted: #8b93a7;
+	--ui-accent: #2563eb;
+	--ui-accent-hover: #3b76f0;
+	--ui-accent-soft: rgb(37 99 235 / 0.25);
+	--ui-focus: #60a5fa;
+	--ui-radius-sm: 4px;
+	--ui-radius: 6px;
+	--ui-radius-lg: 10px;
+	--ui-space-1: 4px;
+	--ui-space-2: 8px;
+	--ui-space-3: 12px;
+	--ui-space-4: 16px;
+	--ui-space-5: 24px;
+	--ui-sidebar-width: 300px;
+	--ui-ease: 150ms ease;
+}
+
+.sidebar {
+	position: fixed;
+	inset-block: 0;
+	inset-inline-start: 0;
+	z-index: 10;
+	inline-size: var(--ui-sidebar-width);
+	display: flex;
+	flex-direction: column;
+	background: var(--ui-bg);
+	backdrop-filter: blur(8px);
+	border-inline-end: 1px solid var(--ui-border);
+	color: var(--ui-fg);
+	font: var(--ui-text-md)/1.45 var(--ui-font);
+	user-select: none;
+	transition: translate 200ms ease;
+}
+
+.sidebar--collapsed {
+	translate: -100% 0;
+}
+
+/* The .sidebar prefix raises specificity so this beats the later .button and .button--icon rules */
+.sidebar .sidebar__toggle {
+	position: absolute;
+	inset-block-start: 12px;
+	inset-inline-start: 100%;
+	inline-size: 22px;
+	block-size: 32px;
+	padding: 0;
+	border: 1px solid var(--ui-border);
+	border-inline-start: 0;
+	border-radius: 0 var(--ui-radius) var(--ui-radius) 0;
+	background: var(--ui-bg);
+}
+
+.sidebar__inner {
+	flex: 1;
+	min-block-size: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.sidebar__header {
+	padding: var(--ui-space-3) var(--ui-space-3) 0;
+}
+
+.sidebar__body {
+	flex: 1;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: var(--ui-space-4) 14px var(--ui-space-5);
+	scrollbar-width: thin;
+	scrollbar-color: rgb(255 255 255 / 0.15) transparent;
+}
+
+.sidebar :focus-visible {
+	outline: 2px solid var(--ui-focus);
+	outline-offset: 2px;
+}
+
+.tabs {
+	display: flex;
+	gap: 2px;
+	padding: 3px;
+	background: var(--ui-surface);
+	border-radius: var(--ui-radius);
+}
+
+.tabs__tab {
+	flex: 1;
+	padding: 6px 4px;
+	border: 0;
+	border-radius: var(--ui-radius-sm);
+	background: none;
+	color: var(--ui-fg-muted);
+	font: 500 var(--ui-text-sm)/1 var(--ui-font);
+	cursor: pointer;
+	transition: background-color var(--ui-ease), color var(--ui-ease);
+}
+
+.tabs__tab:hover {
+	color: var(--ui-fg);
+	background: var(--ui-surface-hover);
+}
+
+.tabs__tab[aria-selected='true'] {
+	background: var(--ui-accent);
+	color: #fff;
+}
+
+.tabs__panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--ui-space-5);
+}
+
+/* display: flex would beat the hidden attribute */
+.tabs__panel[hidden] {
+	display: none;
+}
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--ui-space-3);
+}
+
+.section__title {
+	margin: 0;
+	padding-block-end: 6px;
+	border-block-end: 1px solid var(--ui-border);
+	color: var(--ui-fg-muted);
+	font-size: var(--ui-text-xs);
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.field {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	align-items: center;
+	gap: var(--ui-space-2) var(--ui-space-3);
+}
+
+.field__label {
+	cursor: pointer;
+}
+
+.field--range .field__input {
+	grid-column: 1 / -1;
+}
+
+.field__value {
+	color: var(--ui-fg-muted);
+	font-size: var(--ui-text-sm);
+	font-variant-numeric: tabular-nums;
+}
+
+.field:has(.field__input:disabled) {
+	opacity: 0.45;
+}
+
+.field__input:disabled {
+	cursor: not-allowed;
+}
+
+/* webkit and moz pseudos must be separate rules: an unknown pseudo drops the whole selector list */
+.field--range .field__input {
+	appearance: none;
+	inline-size: 100%;
+	block-size: 18px;
+	margin: 0;
+	background: none;
+	cursor: pointer;
+}
+
+.field--range .field__input::-webkit-slider-runnable-track {
+	block-size: 4px;
+	border-radius: 999px;
+	background: linear-gradient(to right, var(--ui-accent) var(--fill, 0%), var(--ui-track) var(--fill, 0%));
+}
+
+.field--range .field__input::-webkit-slider-thumb {
+	appearance: none;
+	inline-size: 14px;
+	block-size: 14px;
+	margin-block-start: -5px;
+	border: 2px solid var(--ui-accent);
+	border-radius: 50%;
+	background: #fff;
+	transition: scale var(--ui-ease), box-shadow var(--ui-ease);
+}
+
+.field--range .field__input:hover::-webkit-slider-thumb {
+	scale: 1.15;
+}
+
+.field--range .field__input:focus-visible::-webkit-slider-thumb {
+	box-shadow: 0 0 0 4px var(--ui-accent-soft);
+}
+
+.field--range .field__input::-moz-range-track {
+	block-size: 4px;
+	border-radius: 999px;
+	background: var(--ui-track);
+}
+
+.field--range .field__input::-moz-range-progress {
+	block-size: 4px;
+	border-radius: 999px;
+	background: var(--ui-accent);
+}
+
+.field--range .field__input::-moz-range-thumb {
+	inline-size: 10px;
+	block-size: 10px;
+	border: 2px solid var(--ui-accent);
+	border-radius: 50%;
+	background: #fff;
+}
+
+.field--toggle .field__input {
+	appearance: none;
+	position: relative;
+	inline-size: 32px;
+	block-size: 18px;
+	margin: 0;
+	border-radius: 999px;
+	background: var(--ui-track);
+	cursor: pointer;
+	transition: background-color var(--ui-ease);
+}
+
+.field--toggle .field__input::before {
+	content: '';
+	position: absolute;
+	inset: 2px auto 2px 2px;
+	aspect-ratio: 1;
+	border-radius: 50%;
+	background: #fff;
+	transition: translate var(--ui-ease);
+}
+
+.field--toggle .field__input:checked {
+	background: var(--ui-accent);
+}
+
+.field--toggle .field__input:checked::before {
+	translate: 14px 0;
+}
+
+.field--color .field__input {
+	appearance: none;
+	inline-size: 36px;
+	block-size: 24px;
+	padding: 0;
+	border: 1px solid var(--ui-border-strong);
+	border-radius: var(--ui-radius-sm);
+	background: none;
+	cursor: pointer;
+}
+
+.field--color .field__input::-webkit-color-swatch-wrapper {
+	padding: 0;
+}
+
+.field--color .field__input::-webkit-color-swatch {
+	border: 0;
+	border-radius: 3px;
+}
+
+.field--color .field__input::-moz-color-swatch {
+	border: 0;
+	border-radius: 3px;
+}
+
+.button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	inline-size: 100%;
+	padding: 8px 12px;
+	border: 1px solid var(--ui-border-strong);
+	border-radius: var(--ui-radius);
+	background: var(--ui-surface);
+	color: var(--ui-fg);
+	font: 500 var(--ui-text-md)/1.2 var(--ui-font);
+	cursor: pointer;
+	transition: background-color var(--ui-ease), border-color var(--ui-ease);
+}
+
+.button:hover:not(:disabled) {
+	background: var(--ui-surface-hover);
+}
+
+.button:active:not(:disabled) {
+	translate: 0 1px;
+}
+
+.button:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.button--primary {
+	border-color: transparent;
+	background: var(--ui-accent);
+	color: #fff;
+}
+
+.button--primary:hover:not(:disabled) {
+	background: var(--ui-accent-hover);
+}
+
+.button--icon {
+	inline-size: auto;
+	padding: 6px;
+}
+
+.button svg {
+	inline-size: 16px;
+	block-size: 16px;
+	flex: none;
+}
+
+.hints {
+	display: flex;
+	flex-direction: column;
+	gap: var(--ui-space-2);
+	margin: 0;
+	color: var(--ui-fg-muted);
+	font-size: var(--ui-text-sm);
+}
+
+.hints__row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--ui-space-3);
+}
+
+/* The description reads first, and takes the width the keys leave; long key groups wrap inside their own right-aligned cell */
+.hints dd {
+	order: -1;
+	flex: 1;
+	min-inline-size: 0;
+	margin: 0;
+}
+
+.hints dt {
+	display: flex;
+	flex: none;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: var(--ui-space-1);
+	max-inline-size: 60%;
+}
+
+kbd {
+	white-space: nowrap;
+	padding: 1px 5px;
+	border: 1px solid var(--ui-border-strong);
+	border-block-end-width: 2px;
+	border-radius: var(--ui-radius-sm);
+	background: var(--ui-surface);
+	color: var(--ui-fg);
+	font: var(--ui-text-xs)/1.4 var(--ui-font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sidebar,
+	.sidebar * {
+		transition-duration: 0s;
+	}
+}
