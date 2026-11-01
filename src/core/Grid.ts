@@ -23,10 +23,11 @@ export interface WorldMapColors {
 	sand: string;
 }
 
-/** Offscreen p5 layer redrawn only when stale: marked dirty, drawn with another color, or the canvas size changed. */
+/** Offscreen p5 layer redrawn only when stale: marked dirty, drawn with another color or alpha, or the canvas size changed. */
 class CachedLayer {
 	dirty = true;
 	color?: string;
+	alpha = 1;
 	private graphics?: p5.Graphics;
 	private width = 0;
 	private height = 0;
@@ -43,12 +44,13 @@ class CachedLayer {
 		return this.graphics;
 	}
 
-	isStale(color: string): boolean {
-		return this.dirty || this.color !== color;
+	isStale(color: string, alpha = 1): boolean {
+		return this.dirty || this.color !== color || this.alpha !== alpha;
 	}
 
-	markDrawn(color: string): void {
+	markDrawn(color: string, alpha = 1): void {
 		this.color = color;
+		this.alpha = alpha;
 		this.dirty = false;
 	}
 }
@@ -58,6 +60,13 @@ const NEIGHBOR_DX = [1, -1, 0, 0];
 const NEIGHBOR_DY = [0, 0, 1, -1];
 
 export class Grid {
+	/**
+	 * Grid lines fade with the on-screen cell size: at 10 px and up a 1 px line covers at most a tenth of the cell;
+	 * at 4 px lines (anti-aliased to ~2 px at fractional zoom) would cover half of every cell and hide it.
+	 */
+	private static readonly GRID_FADE_FULL_PX = 10;
+	private static readonly GRID_FADE_HIDDEN_PX = 4;
+
 	// ── Active grid (points to either normalGrid or worldGrid) ──────────────
 	private grid: Terrain[][] = [];
 	public width = 0;
@@ -352,6 +361,8 @@ export class Grid {
 			const ctx = p.drawingContext as CanvasRenderingContext2D;
 			const zoom = cam.zoom;
 			const cs = this.cellSize;
+			const alpha = Grid.gridAlpha(cs * zoom);
+			if (alpha === 0) return;
 
 			const startCX = Math.floor(cam.offsetX / cs);
 			const startCY = Math.floor(cam.offsetY / cs);
@@ -359,6 +370,7 @@ export class Grid {
 			const endCY   = Math.min(this.height, Math.ceil((cam.offsetY + p.height / zoom) / cs) + 1);
 
 			ctx.save();
+			ctx.globalAlpha = alpha;
 			ctx.strokeStyle = color;
 			ctx.lineWidth = 1;
 			ctx.beginPath();
@@ -378,11 +390,15 @@ export class Grid {
 		}
 
 		// Normal mode — cached offscreen layer
+		const alpha = Grid.gridAlpha(this.cellSize);
+		if (alpha === 0) return;
+
 		const layer = this.gridLayer.get(p);
 
-		if (this.gridLayer.isStale(color)) {
+		if (this.gridLayer.isStale(color, alpha)) {
 			const ctx = layer.drawingContext as CanvasRenderingContext2D;
 			ctx.clearRect(0, 0, layer.width, layer.height);
+			ctx.globalAlpha = alpha;
 			ctx.strokeStyle = color;
 			ctx.lineWidth = 1;
 			ctx.beginPath();
@@ -392,13 +408,18 @@ export class Grid {
 			for (let y = 0; y <= this.height; y++) { const py = y * s; ctx.moveTo(0, py); ctx.lineTo(this.width * s, py); }
 			ctx.stroke();
 
-			this.gridLayer.markDrawn(color);
+			this.gridLayer.markDrawn(color, alpha);
 		}
 
 		p.image(layer, 0, 0);
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	private static gridAlpha(cellPx: number): number {
+		const t = (cellPx - Grid.GRID_FADE_HIDDEN_PX) / (Grid.GRID_FADE_FULL_PX - Grid.GRID_FADE_HIDDEN_PX);
+		return Math.max(0, Math.min(1, t));
+	}
 
 	private markCellsDirty(): void {
 		this.isDirty = true;
