@@ -1,5 +1,7 @@
 import type { Connectivity } from './Connectivity';
-import type { CellRect, Position, WallGrid } from './WallGrid';
+import { CHUNK_BITS, CHUNK_SIZE, type CellRect, type Position, type WallGrid } from './WallGrid';
+
+export type SearchKind = 'astar' | 'bidirectional';
 
 /** Neighbor order of the search: up, right, down, left. It decides which of several shortest paths is returned. */
 const DX = [0, 1, 0, -1];
@@ -15,8 +17,10 @@ interface Span {
 }
 
 /**
- * A* on a bounded window of the infinite grid, on 4-neighbors with a Manhattan heuristic.
- * Open entries are ordered by F, then H, then insertion order, so equal-cost ties resolve the same way every run.
+ * Shortest paths on a bounded window of the infinite grid, on 4-neighbors: A* with a Manhattan heuristic, or on dense windows a
+ * bidirectional breadth-first search (`choose`). Both return a shortest path, but not always the same one.
+ * Ties resolve the same way every run: neighbors are taken up, right, down, left. A* orders open entries by F, then H, then insertion
+ * order. The breadth-first search is FIFO, expands the smaller frontier first (forward when equal) and keeps the first discovery of a cell.
  * The typed buffers only grow and are reused across searches, so a search allocates nothing but its result.
  * Given a `Connectivity`, a target the start can't reach inside the window is rejected before the window is copied, not by scanning it.
  */
@@ -30,7 +34,10 @@ export class PathFinder {
 	 * (unreachable target) raised the process rss by ~155 MB, so a scan of the largest window can take ~450 MB.
 	 */
 	static readonly MAX_WINDOW_AREA = 1 << 23;
-	/** Expanded nodes between two yields of `steps`: a slice takes ~9 ms (median) on a maze, which is how late a newer request is seen. */
+	/**
+	 * Expanded nodes between two yields of `steps`, which is how late a newer request is seen: a slice takes ~6 to 7 ms (median) with A*
+	 * and ~3 to 4 ms with the bidirectional search, on a 2240 x 1265 maze in bun and node.
+	 */
 	static readonly SLICE = 50_000;
 	/**
 	 * Margin of the small window `findNear` searches, and the expansions after which it gives up. A search that exhausts the budget
@@ -40,6 +47,15 @@ export class PathFinder {
 	static readonly NEAR_BUDGET = 4096;
 	/** A near window bigger than this is not searched: copying it would cost more than the attempt can save. */
 	static readonly NEAR_AREA = 1 << 17;
+	/**
+	 * Wall density (see `density`) from which a search without a given kind is the bidirectional one. Full-window queries 200+ apart,
+	 * A* median against bidirectional on 2240 x 1265 and 2048 x 2048 in node (V8), in ms: random 20%: 191 / 594 and 455 / 648; 29 to 30%:
+	 * 388 / 516 and 570 / 669; 34 to 35%: 583 / 532 and 526 / 515 (a tie at 2048); 38 to 40%: 1142 / 455 and 1212 / 517; mazes: 1435 / 716 and
+	 * 1409 / 666. Bun agrees (A* wins up to 30%, bidirectional from 34%). The threshold is halfway between 0.30, the highest density where
+	 * A* wins at both sizes, and 0.336, the lowest where bidirectional does. A search from one end only never beat the bidirectional one
+	 * (a tie on mazes) and is not kept. A wrong choice costs time and never a path.
+	 */
+	static readonly BFS_DENSITY = 0.32;
 
 	private walls = new Uint8Array(0);
 	/** Best cost per cell, only meaningful where `state` is at least `base`. The nearest-open-cell search borrows it as its queue. */
@@ -64,6 +80,15 @@ export class PathFinder {
 	private startCell = 0;
 	private goalCell = 0;
 	private expanded = 0;
+	private kind: SearchKind = 'astar';
+	/** Queues of the bidirectional search, both in `g`: the forward side, then the backward side counted from the end of the buffer. */
+	private head = 0;
+	private tail = 0;
+	private levelEnd = 0;
+	private backHead = 0;
+	private backTail = 0;
+	private backLevelEnd = 0;
+	private forwardTurn = true;
 	private readonly connectivity: Connectivity | null;
 
 	constructor(connectivity: Connectivity | null = null) {
@@ -115,8 +140,8 @@ export class PathFinder {
 	 * A wall target gives null, or with `snap` the nearest open cell in the window (BFS) becomes the goal.
 	 * A start on a wall is allowed: the search leaves it like any cell.
 	 */
-	find(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity): Position[] | null {
-		const search = this.steps(grid, start, target, window, snap, budget);
+	find(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity, kind?: SearchKind): Position[] | null {
+		const search = this.steps(grid, start, target, window, snap, budget, kind);
 		while (true) {
 			const step = search.next();
 			if (step.done) return step.value;
@@ -143,7 +168,7 @@ export class PathFinder {
 		if ((right - left) * (bottom - top) > PathFinder.NEAR_AREA) return null;
 
 		const near = { x: left, y: top, width: right - left, height: bottom - top };
-		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET);
+		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET, 'astar');
 		const distance = Math.abs(start.x - target.x) + Math.abs(start.y - target.y);
 		return path !== null && path.length - 1 <= distance + 2 * margin ? path : null;
 	}
@@ -153,7 +178,7 @@ export class PathFinder {
 	 * The grid is only read before the first yield: the search then runs on its own copy of the window.
 	 * The connectivity check, when there is one, ends the generator before its first yield.
 	 */
-	*steps(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity): Generator<void, Position[] | null, undefined> {
+	*steps(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity, kind?: SearchKind): Generator<void, Position[] | null, undefined> {
 		if (!PathFinder.contains(window, start) || !PathFinder.contains(window, target)) return null;
 
 		let goal = target;
@@ -170,12 +195,13 @@ export class PathFinder {
 			}
 		}
 
+		if (start.x === goal.x && start.y === goal.y) return [{ ...start }];
 		const straight = PathFinder.straight(grid, start, goal);
 		if (straight !== null) return straight;
 		if (this.connectivity !== null && !this.connectivity.mayReach(grid, window, start, goal)) return null;
 
 		if (!loaded) this.load(grid, window);
-		this.begin(window, start, goal);
+		this.begin(window, start, goal, kind ?? PathFinder.choose(grid, window));
 		while (true) {
 			const result = this.run(budget);
 			if (result !== undefined) return result;
@@ -253,10 +279,28 @@ export class PathFinder {
 		return null;
 	}
 
+	/** Walls over cells of the chunks that overlap the window: approximate at the edges, where a chunk reaches outside the window. */
+	private static density(grid: WallGrid, window: CellRect): number {
+		const firstX = window.x >> CHUNK_BITS;
+		const firstY = window.y >> CHUNK_BITS;
+		const lastX = (window.x + window.width - 1) >> CHUNK_BITS;
+		const lastY = (window.y + window.height - 1) >> CHUNK_BITS;
+		let walls = 0;
+		for (let cy = firstY; cy <= lastY; cy++) {
+			for (let cx = firstX; cx <= lastX; cx++) walls += grid.chunkAt(cx, cy)?.walls ?? 0;
+		}
+		return walls / ((lastX - firstX + 1) * (lastY - firstY + 1) * CHUNK_SIZE * CHUNK_SIZE);
+	}
+
+	private static choose(grid: WallGrid, window: CellRect): SearchKind {
+		return PathFinder.density(grid, window) >= PathFinder.BFS_DENSITY ? 'bidirectional' : 'astar';
+	}
+
 	/** Sets up the search state for `run`. */
-	private begin(window: CellRect, start: Position, goal: Position): void {
-		const { x: ox, y: oy, width: W } = window;
+	private begin(window: CellRect, start: Position, goal: Position, kind: SearchKind): void {
+		const { x: ox, y: oy, width: W, height: H } = window;
 		this.searchWindow = window;
+		this.kind = kind;
 		this.nextBase();
 		this.entryCount = 0;
 		this.heapSize = 0;
@@ -264,17 +308,119 @@ export class PathFinder {
 
 		this.startCell = (start.y - oy) * W + start.x - ox;
 		this.goalCell = (goal.y - oy) * W + goal.x - ox;
-		this.g[this.startCell] = 0;
 		this.state[this.startCell] = this.base;
-		const startH = Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y);
-		this.push(this.startCell, startH, startH);
+		if (kind === 'astar') {
+			this.g[this.startCell] = 0;
+			const startH = Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y);
+			this.push(this.startCell, startH, startH);
+			return;
+		}
+
+		this.g[0] = this.startCell;
+		this.g[W * H - 1] = this.goalCell;
+		this.state[this.goalCell] = this.base + 1;
+		this.head = 0;
+		this.tail = 1;
+		this.levelEnd = 0;
+		this.backHead = 0;
+		this.backTail = 1;
+		this.backLevelEnd = 0;
+		this.forwardTurn = true;
+	}
+
+	private run(budget: number): Position[] | null | undefined {
+		return this.kind === 'astar' ? this.runAStar(budget) : this.runBidirectional(budget);
+	}
+
+	/**
+	 * Breadth-first search from both ends. The forward queue grows up from `g[0]`, the backward one down from `g[area - 1]`, and each cell
+	 * is queued once overall, so they never meet in the buffer. A cell is marked `base` when the forward side reached it and `base + 1`
+	 * for the backward side. Each turn expands one full level of the side with the smaller frontier (forward when equal). The first
+	 * meeting is a shortest path: while a side expands a level the other frontier doesn't move, and a neighbor the other side reached must
+	 * be on its frontier (an expanded cell would already have reached the current one), so every meeting of that level has length
+	 * forward depth + 1 + backward depth. A frontier that runs out proves there is no path in the window. The backward side never enters a
+	 * wall and the goal is open, so a start on a wall meets from the forward side.
+	 */
+	private runBidirectional(budget: number): Position[] | null | undefined {
+		const window = this.searchWindow;
+		const { width: W, height: H } = window;
+		const { walls, g: queue, state, from, base } = this;
+		const sliceEnd = this.expanded + PathFinder.SLICE;
+		const last = W * H - 1;
+		let { expanded, head, tail, levelEnd, backHead, backTail, backLevelEnd, forwardTurn } = this;
+
+		while (true) {
+			if (forwardTurn ? head === levelEnd : backHead === backLevelEnd) {
+				if (head === tail || backHead === backTail) return null;
+				forwardTurn = tail - head <= backTail - backHead;
+				if (forwardTurn) levelEnd = tail;
+				else backLevelEnd = backTail;
+			}
+			if (++expanded > budget) return null;
+
+			const own = forwardTurn ? base : base + 1;
+			const other = forwardTurn ? base + 1 : base;
+			const cell = forwardTurn ? queue[head++] : queue[last - backHead++];
+			const x = cell % W;
+			const y = (cell - x) / W;
+			for (let d = 0; d < 4; d++) {
+				const nx = x + DX[d];
+				const ny = y + DY[d];
+				if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+				const n = ny * W + nx;
+				if (walls[n] !== 0) continue;
+
+				const seen = state[n];
+				if (seen === other) return forwardTurn ? this.rebuildMeeting(cell, n) : this.rebuildMeeting(n, cell);
+				if (seen === own) continue;
+
+				state[n] = own;
+				from[n] = d;
+				if (forwardTurn) queue[tail++] = n;
+				else queue[last - backTail++] = n;
+			}
+
+			if (expanded === sliceEnd) {
+				this.expanded = expanded;
+				this.head = head;
+				this.tail = tail;
+				this.levelEnd = levelEnd;
+				this.backHead = backHead;
+				this.backTail = backTail;
+				this.backLevelEnd = backLevelEnd;
+				this.forwardTurn = forwardTurn;
+				return undefined;
+			}
+		}
+	}
+
+	/** Start to `forwardCell` through the forward entries, then `backwardCell` to the goal through the backward ones (both sides walk the same way). */
+	private rebuildMeeting(forwardCell: number, backwardCell: number): Position[] {
+		const { x: ox, y: oy, width: W } = this.searchWindow;
+		const { from, startCell, goalCell } = this;
+		const at = (cell: number): Position => {
+			const x = cell % W;
+			return { x: x + ox, y: (cell - x) / W + oy };
+		};
+
+		const path: Position[] = [];
+		for (let cell = forwardCell; ; cell -= DY[from[cell]] * W + DX[from[cell]]) {
+			path.push(at(cell));
+			if (cell === startCell) break;
+		}
+		path.reverse();
+		for (let cell = backwardCell; ; cell -= DY[from[cell]] * W + DX[from[cell]]) {
+			path.push(at(cell));
+			if (cell === goalCell) break;
+		}
+		return path;
 	}
 
 	/**
 	 * Runs the search for up to `SLICE` more expansions: the path, null when it fails (no path, or `budget` expansions in total),
 	 * or undefined when it isn't over. The state is in fields: with the loop inside the generator, it ran 1.5x (open window) to 2.8x (maze) slower in bun.
 	 */
-	private run(budget: number): Position[] | null | undefined {
+	private runAStar(budget: number): Position[] | null | undefined {
 		const window = this.searchWindow;
 		const { width: W, height: H } = window;
 		const { walls, g, state, from, base, startCell, goalCell } = this;

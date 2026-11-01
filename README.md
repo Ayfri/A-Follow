@@ -63,7 +63,7 @@ The path search runs on a window made of the visible area grown by 16 cells on e
 The search has no node budget on the full window, so it always gives the exact answer, and it runs off the main thread:
 
 - **Small attempt on the main thread**: a target near the player is answered on the spot by a search on a small window (32 cells around the two points) that stops after 4096 expanded nodes. Its path is kept only when no path leaving that small window can be shorter. Otherwise the target goes to the worker.
-- **Path worker**: it searches the whole window on its own copy of the walls, which receives every wall change from the main thread in order. Only the newest request is kept: an older one that has not started is dropped, and one that has started is abandoned at its next slice. A search runs in slices of 50,000 expanded nodes (about 9 ms), so a newer request is seen quickly. The player keeps walking its old path until the result arrives, then joins the new one.
+- **Path worker**: it searches the whole window on its own copy of the walls, which receives every wall change from the main thread in order. Only the newest request is kept: an older one that has not started is dropped, and one that has started is abandoned at its next slice. A search runs in slices of 50,000 expanded nodes (a few ms), so a newer request is seen quickly. The player keeps walking its old path until the result arrives, then joins the new one.
 
 ### Connectivity check
 
@@ -71,9 +71,9 @@ Before it searches, the worker checks that the target can be reached at all. Eac
 
 The check only proves that there is no path. Labels cover whole chunks, including the cells of an edge chunk that lie outside the window, so it can say "connected" when the only route runs through those cells: the search then runs and finds nothing. It never rejects a reachable target, and on a window aligned to chunk borders it is exact. A target walled in on a 2240 x 1265 grid is rejected in about 50 ms the first time and about 1 ms after a wall change, where scanning the window took about 1.5 s.
 
-### A*
+### A* and bidirectional search
 
-The search moves on 4 neighbors with a Manhattan heuristic. The open set is a binary heap ordered by total cost, then by heuristic cost, then by insertion order, so equal-cost paths resolve the same way on every run. When the player and the target share a row or a column with no wall between them, the straight path is returned without copying the window. With snap on, a wall target is replaced by the nearest open cell found with a breadth-first search inside the window. The path is only recomputed when the target cell, the walls or the snap option change.
+The search moves on 4 neighbors and always returns a shortest path. A* uses a Manhattan heuristic, with an open set that is a binary heap ordered by total cost, then by heuristic cost, then by insertion order. Where walls are dense the heuristic stops helping, so the full-window search switches to a breadth-first search from both ends: when about a third of the cells of the window's chunks or more are walls (and on every maze), it is about 2 to 2.5 times faster, for example a 2240 x 1265 maze took about 100 ms with A* and 40 to 60 ms with it. It expands one full level of the side with the smaller frontier each turn, and a side that runs out of cells proves there is no path. The small attempt on the main thread always uses A*. Equal-cost paths resolve the same way on every run (neighbors are taken up, right, down, left), but A* and the bidirectional search can return different shortest paths. When the player and the target share a row or a column with no wall between them, the straight path is returned without copying the window. With snap on, a wall target is replaced by the nearest open cell found with a breadth-first search inside the window. The path is only recomputed when the target cell, the walls or the snap option change.
 
 ## Getting started
 
