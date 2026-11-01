@@ -14,7 +14,6 @@
 	--ui-fg: #e5e7ee;
 	--ui-fg-muted: #8b93a7;
 	--ui-accent: #2563eb;
-	--ui-accent-hover: #3b76f0;
 	--ui-accent-soft: rgb(37 99 235 / 0.25);
 	--ui-focus: #60a5fa;
 	--ui-radius-sm: 4px;
@@ -158,26 +157,15 @@
 	cursor: pointer;
 }
 
-.field--range .field__input {
-	grid-column: 1 / -1;
-}
-
 .field__value {
 	color: var(--ui-fg-muted);
 	font-size: var(--ui-text-sm);
 	font-variant-numeric: tabular-nums;
 }
 
-.field:has(.field__input:disabled) {
-	opacity: 0.45;
-}
-
-.field__input:disabled {
-	cursor: not-allowed;
-}
-
 /* webkit and moz pseudos must be separate rules: an unknown pseudo drops the whole selector list */
 .field--range .field__input {
+	grid-column: 1 / -1;
 	appearance: none;
 	inline-size: 100%;
 	block-size: 18px;
@@ -302,27 +290,12 @@
 	transition: background-color var(--ui-ease), border-color var(--ui-ease);
 }
 
-.button:hover:not(:disabled) {
+.button:hover {
 	background: var(--ui-surface-hover);
 }
 
-.button:active:not(:disabled) {
+.button:active {
 	translate: 0 1px;
-}
-
-.button:disabled {
-	opacity: 0.45;
-	cursor: not-allowed;
-}
-
-.button--primary {
-	border-color: transparent;
-	background: var(--ui-accent);
-	color: #fff;
-}
-
-.button--primary:hover:not(:disabled) {
-	background: var(--ui-accent-hover);
 }
 
 .button--icon {

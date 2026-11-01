@@ -44,11 +44,11 @@ export class Camera {
 	}
 
 	/**
-	 * Advances the zoom animation by `dt` seconds (frame-rate independent) and returns whether the camera moved.
+	 * Advances the zoom animation by `dt` seconds (frame-rate independent).
 	 * The offset is recomputed from the anchor each step, so the anchored cell stays under its screen point exactly.
 	 */
-	update(dt: number): boolean {
-		if (this.zoom === this.targetZoom) return false;
+	update(dt: number): void {
+		if (this.zoom === this.targetZoom) return;
 
 		const diff = this.targetZoom - this.zoom;
 		this.zoom = Math.abs(diff) < Camera.ZOOM_SNAP
@@ -61,7 +61,6 @@ export class Camera {
 		}
 
 		if (this.zoom === this.targetZoom) this.anchor = null;
-		return true;
 	}
 
 	/** Fractional cell coordinates under a screen point. */

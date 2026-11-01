@@ -43,7 +43,7 @@ export class WallGrid {
 	private readonly chunks = new Map<number, Chunk>();
 	private rev = 0;
 
-	/** Bumped once per actual change. */
+	/** Bumped by each `setWall` that changes a cell, each fill (even one that rewrites the same walls) and `clear` on a grid with walls. */
 	get revision(): number {
 		return this.rev;
 	}
@@ -146,6 +146,7 @@ export class WallGrid {
 	}
 
 	clear(): void {
+		if (this.chunks.size === 0) return;
 		this.chunks.clear();
 		this.rev++;
 	}
