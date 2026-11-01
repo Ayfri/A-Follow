@@ -1,112 +1,97 @@
 # AFollow
 
-AFollow is an interactive web application demonstrating the A* pathfinding algorithm using p5.js. Watch as a player navigates through a grid-based environment, finding optimal paths around obstacles in real-time.
+AFollow is an interactive A* pathfinding sandbox built with p5.js. You draw walls on an infinite grid, move the mouse, and a player walks the shortest path to the cell under the cursor, around everything you built.
+
+Live demo: [afollow.ayfri.com](https://afollow.ayfri.com/)
 
 ## Features
 
-- **Real-time A* Pathfinding**: Interactive visualization of the A* algorithm with live path calculation
-- **Dynamic Player Movement**: Player automatically follows the calculated path at adjustable speeds
-- **Interactive Grid Editing**: 
-  - Left-click and drag to draw walls/obstacles
-  - Right-click and drag to erase walls
-  - Hold Shift while dragging for straight lines
-- **Customizable Controls**:
-  - Adjust player movement speed
-  - Change grid cell size
-  - Customize colors for all visual elements (background, walls, path, grid, player)
-- **Procedural Generation**:
-  - Generate random mazes using recursive backtracking
-  - Create random obstacle grids with adjustable density
-- **Persistent Settings**: All preferences are automatically saved to localStorage
-- **Responsive Design**: Adapts to different screen sizes
-- **Collapsible UI**: Minimize controls to focus on the visualization
+- **Infinite grid**: pan in any direction, there are no world bounds. Walls are stored in sparse 128 x 128 chunks, and a chunk without walls takes no memory.
+- **Chunk-cached rendering**: each chunk is drawn to its own canvas and repacked only when its walls change, so a frame costs one image draw per visible chunk.
+- **Build mode**: toggle it with `B`. With build mode off, a left drag pans instead of drawing.
+- **A* in a bounded window**: the search covers the visible area plus a margin, with a node budget, so a walled-in target never freezes the page.
+- **Smooth zoom**: the wheel zooms from 25% to 400% around the cursor with an eased animation.
+- **Maze and random grid generators** that fill the visible area.
+- **Themes and settings** saved in localStorage, with a collapsible sidebar.
 
-## Technologies
+## Controls
 
-- **p5.js**: Creative coding library for interactive graphics and animations
-- **A* Algorithm**: Efficient pathfinding with Manhattan distance heuristic
-- **TypeScript 7**: Type-safe JavaScript, checked by the native Go compiler
-- **Vite 8**: Rolldown-powered build tool and development server, run on Bun
-- **HTML5 Canvas**: Hardware-accelerated graphics rendering
+| Input | Action |
+| --- | --- |
+| `B` | Toggle build mode |
+| Left drag | Draw walls (build mode on) or pan (build mode off) |
+| Right drag | Erase walls (build mode on) |
+| `Shift` + drag | Draw or erase a straight line |
+| Middle drag | Pan |
+| `Space` + left drag | Pan |
+| Arrow keys | Pan |
+| Mouse wheel | Zoom around the cursor |
 
-## How It Works
+Move the mouse over the canvas to set the target: the path is drawn from the player to the cell under the cursor.
 
-The application uses the A* pathfinding algorithm to find the shortest path from the player's current position to the mouse cursor position. The algorithm:
+## Settings
 
-1. Maintains an open list of nodes to evaluate and a closed list of evaluated nodes
-2. Calculates costs: g-cost (distance from start), h-cost (estimated distance to end), f-cost (total)
-3. Explores neighboring cells in 4 directions (up, down, left, right)
-4. Reconstructs the optimal path once the target is reached
+Every setting below is saved in localStorage, except the zoom, which starts at 100%.
 
-## Getting Started
+| Section | Setting | Range or default |
+| --- | --- | --- |
+| Mode | Build | On |
+| Player | Speed | 1 to 5000 cells/s on a log scale, default 5 cells/s |
+| Grid | Cell Size | 3 to 60 px, default 20 px |
+| Grid | Show grid lines | On. Lines fade out as cells shrink below 10 px and disappear at 4 px. |
+| Grid | Snap to nearest tile | Off. A wall target is replaced by the nearest open cell. |
+| Maze | Generate Maze | Replaces the visible area with a random maze |
+| Maze | Wall Probability | 5% to 60% in steps of 2.5%, default 20% |
+| Maze | Random Grid | Replaces the visible area with random walls at that probability |
+| Maze | Clear | Removes every wall of the grid |
+| Camera | Zoom | 25% to 400%, follows the wheel |
+| Camera | Reset view | Centers the camera on the player at zoom 100% |
+| Theme | Background, Wall, Path, Grid Lines, Player | One color picker each |
 
-### Prerequisites
+Generate Maze and Random Grid act on the visible area, including the part under the sidebar. Walls outside it stay as they are. Clear acts on the whole grid.
 
-- [Bun](https://bun.com) 1.4 or higher (runtime and package manager)
+## How it works
 
-### Installation
+### Chunks
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Ayfri/A-Follow.git
-   cd A-Follow
-   ```
+The grid is a map from chunk coordinates to a 128 x 128 `Uint8Array` (1 is a wall). Cells are int32 and a chunk key packs both chunk coordinates into one number, so lookups allocate nothing. A chunk that loses its last wall is deleted. Each chunk carries a version stamp taken from the grid revision at its last change, and the renderer repacks a chunk's canvas only when the stamps differ.
 
-2. Install dependencies:
-   ```bash
-   bun install
-   ```
+### Window and budget
 
-3. Run the development server:
-   ```bash
-   bun run dev
-   ```
+The path search runs on a window made of the visible area grown by 16 cells on every side, extended to contain the player and the target. A window side is capped at 2048 cells, and a player and a target that are 2048 or more cells apart on one axis have no path. The walls of the window are copied once into a flat buffer, so the search loop never touches the chunk map. A search stops after 2^18 expanded nodes and returns no path, which bounds the cost of a target that is walled in far away to about 110 ms on the largest window.
 
-4. Open your browser to `http://localhost:5173` to see the A* pathfinding experiment.
+### A*
 
-## Usage
+The search moves on 4 neighbors with a Manhattan heuristic. The open set is a binary heap ordered by total cost, then by heuristic cost, then by insertion order, so equal-cost paths resolve the same way on every run. When the player and the target share a row or a column with no wall between them, the straight path is returned without copying the window. With snap on, a wall target is replaced by the nearest open cell found with a breadth-first search inside the window. The path is only recomputed when the target cell, the walls or the snap option change.
 
-### Basic Interaction
-- **Move the mouse** to set the target position for pathfinding
-- **Left-click and drag** on the grid to create walls/obstacles
-- **Right-click and drag** to remove walls
-- **Hold Shift** while dragging to draw straight lines
+## Getting started
 
-### UI Controls
-- **Speed Slider**: Adjust how fast the player moves along the path
-- **Grid Size Slider**: Change the size of grid cells
-- **Color Pickers**: Customize the appearance of different elements
-- **Generate Random Maze**: Create a perfect maze using recursive backtracking
-- **Generate Random Grid**: Fill the grid with random obstacles based on probability
-- **Random Grid Probability**: Adjust the density of random obstacles
+Requires [Bun](https://bun.com) 1.4 or higher.
 
-### Keyboard Shortcuts
-- **Shift + Drag**: Draw straight lines when creating walls
-
-## Build
-
-To build for production:
 ```bash
-bun run build
+git clone https://github.com/Ayfri/A-Follow.git
+cd A-Follow
+bun install
+bun run dev
 ```
 
-## Preview
+Then open `http://localhost:5173`.
 
-To preview the production build:
+Other scripts:
+
 ```bash
-bun run preview
+bun run build    # type-check with tsc, then build to dist/
+bun run preview  # serve the production build
 ```
 
-## Contributing
+## Tech
 
-Contributions are welcome! Please feel free to submit a Pull Request. Areas for improvement include:
-
-- Additional pathfinding algorithms (Dijkstra, BFS, etc.)
-- More maze generation algorithms
-- Performance optimizations
-- Mobile touch support
-- Export/import grid configurations
+- [p5.js](https://p5js.org) 2 for the canvas, input and animation loop
+- [TypeScript](https://www.typescriptlang.org) 7
+- [Vite](https://vite.dev) 8
+- [Bun](https://bun.com) as runtime and package manager
+- [Lucide](https://lucide.dev) for the icons
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
