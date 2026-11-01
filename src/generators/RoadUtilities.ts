@@ -1,3 +1,4 @@
+import type { Position } from '../core/Grid';
 import { TerrainType } from '../core/TerrainType';
 import { TerrainGenerator } from './TerrainGenerator';
 
@@ -30,7 +31,7 @@ export class RoadUtilities extends TerrainGenerator {
 		y0: number,
 		x1: number,
 		y1: number
-	): Array<{ x: number; y: number }> | null {
+	): Position[] | null {
 		const W = this.width;
 		const H = this.height;
 		const total = W * H;
@@ -98,7 +99,7 @@ export class RoadUtilities extends TerrainGenerator {
 
 			if (currK === endK) {
 				// Reconstruct path following cameFrom chain
-				const path: Array<{ x: number; y: number }> = [];
+				const path: Position[] = [];
 				let k = currK;
 				while (k !== -1) {
 					path.push({ x: k % W, y: (k / W) | 0 });

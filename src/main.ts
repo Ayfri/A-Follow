@@ -4,14 +4,14 @@ import { Camera } from './core/Camera';
 import { DrawingSystem } from './core/DrawingSystem';
 import { Grid, type Position } from './core/Grid';
 import { Player } from './core/Player';
-import { Theme } from './core/Theme';
+import { type ColorTheme, DEFAULT_THEME } from './core/Theme';
 import type { WorldGenOptions } from './generators/WorldMapGenerator';
 import { Sidebar } from './ui/Sidebar';
 import './style.css';
 
 const grid = new Grid(20);
 const player = new Player(5);
-const theme = new Theme();
+const theme: ColorTheme = { ...DEFAULT_THEME };
 const camera = new Camera();
 const drawingSystem = new DrawingSystem(grid);
 
@@ -81,7 +81,7 @@ let sketch_p: p5;
 function findNearestTraversableTile(x: number, y: number): Position | null {
 	const W = grid.width;
 	const encodeKey = (cx: number, cy: number) => cy * W + cx;
-	const queue: Array<{ x: number; y: number }> = [{ x, y }];
+	const queue: Position[] = [{ x, y }];
 	const visited = new Set<number>();
 	visited.add(encodeKey(x, y));
 
@@ -131,8 +131,7 @@ const sketch = (p: p5) => {
 	};
 
 	p.draw = () => {
-		const currentTheme = theme.getTheme();
-		p.background(currentTheme.background);
+		p.background(theme.background);
 
 		const inMapMode = grid.isWorldMapMode();
 		const dt = p.deltaTime / 1000; // seconds
@@ -153,7 +152,7 @@ const sketch = (p: p5) => {
 		}
 
 		// ── Draw world ───────────────────────────────────────────────────────
-		grid.drawActiveCells(p, currentTheme.activeCell, inMapMode ? camera : undefined);
+		grid.drawActiveCells(p, theme.activeCell, camera);
 
 		// ── Pathfinding preview (normal mode only) ───────────────────────────
 		if (!inMapMode) {
@@ -191,7 +190,7 @@ const sketch = (p: p5) => {
 			}
 
 			if (selectedPath.length > 0) {
-				p.fill(currentTheme.path);
+				p.fill(theme.path);
 				p.noStroke();
 				const pPos = player.getPosition();
 				let startIndex = 0;
@@ -212,11 +211,11 @@ const sketch = (p: p5) => {
 
 		// ── Grid lines ───────────────────────────────────────────────────────
 		if (sidebar.showGridColor) {
-			grid.drawGrid(p, currentTheme.grid, inMapMode ? camera : undefined);
+			grid.drawGrid(p, theme.grid, camera);
 		}
 
 		// ── Player ───────────────────────────────────────────────────────────
-		player.draw(p, grid, currentTheme.player, inMapMode ? camera : undefined);
+		player.draw(p, grid, theme.player, camera);
 
 		// ── Player movement ──────────────────────────────────────────────────
 		player.update(p);

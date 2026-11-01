@@ -54,20 +54,20 @@ export class Player {
 		}
 	}
 
-	draw(p: p5, grid: Grid, playerColor?: string, cam?: Camera): void {
+	draw(p: p5, grid: Grid, playerColor: string, cam: Camera): void {
 		const worldCenter = grid.getCenterPixelFromCell(this.x, this.y);
 		let sx = worldCenter.x;
 		let sy = worldCenter.y;
 		let drawSize = grid.getCellSize();
 
-		if (cam && grid.isWorldMapMode()) {
+		if (grid.isWorldMapMode()) {
 			const screen = cam.worldToScreen(worldCenter.x, worldCenter.y);
 			sx = screen.x;
 			sy = screen.y;
 			drawSize *= cam.zoom;
 		}
 
-		p.fill(playerColor || '#ffffff');
+		p.fill(playerColor);
 		p.noStroke();
 		p.ellipse(sx, sy, drawSize, drawSize);
 	}

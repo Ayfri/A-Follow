@@ -1,4 +1,4 @@
-import { TerrainType } from '../core/TerrainType';
+import { type Terrain, TerrainType } from '../core/TerrainType';
 import { Rng } from '../utils/Rng';
 import { CityAndRoadGenerator } from './CityAndRoadGenerator';
 import { ForestGenerator } from './ForestGenerator';
@@ -42,7 +42,7 @@ export const DEFAULT_LAYERS: WorldGenOptions['enable'] = {
 export class WorldMapGenerator {
 	private width: number;
 	private height: number;
-	private grid: number[][];
+	private grid: Terrain[][];
 
 	constructor(width: number, height: number) {
 		this.width  = width;
@@ -50,7 +50,7 @@ export class WorldMapGenerator {
 		this.grid   = [];
 	}
 
-	generate(options: WorldGenOptions): number[][] {
+	generate(options: WorldGenOptions): Terrain[][] {
 		const rng = new Rng(options.seed);
 
 		this.grid = Array.from({ length: this.height }, () =>

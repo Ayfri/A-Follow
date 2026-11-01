@@ -1,10 +1,10 @@
 import { ChevronLeft, ChevronRight, createElement, Dices, type IconNode, Zap } from 'lucide';
 import type p5 from 'p5';
 import type { Camera } from '../core/Camera';
-import type { Grid } from '../core/Grid';
+import type { Grid, WorldMapColors } from '../core/Grid';
 import type { Player } from '../core/Player';
-import { Theme } from '../core/Theme';
-import type { WorldGenOptions } from '../generators/WorldMapGenerator';
+import type { ColorTheme } from '../core/Theme';
+import { DEFAULT_LAYERS, type WorldGenOptions, type WorldLayer } from '../generators/WorldMapGenerator';
 import { Rng } from '../utils/Rng';
 import { StorageManager } from '../utils/StorageManager';
 import { Checkbox } from './inputs/Checkbox';
@@ -16,6 +16,8 @@ const ICON_ATTRS = { width: 14, height: 14 };
 
 type Tab = 'general' | 'map' | 'generation' | 'terrain' | 'theme';
 
+type RegenMap = (seed: number, enable: WorldGenOptions['enable'], multiplier: number) => void;
+
 export class Sidebar {
 	// Public state consumed by main.ts
 	public showGridColor = true;
@@ -25,8 +27,8 @@ export class Sidebar {
 	private player: Player;
 	private grid: Grid;
 	private camera: Camera;
-	private theme: Theme;
-	private onRegenMap: (seed: number, options: WorldGenOptions['enable'], multiplier: number) => void;
+	private theme: ColorTheme;
+	private onRegenMap: RegenMap;
 	private onToggleMapMode: (enabled: boolean) => void;
 
 	private container!: p5.Element;
@@ -41,7 +43,7 @@ export class Sidebar {
 
 	// Generation tab
 	private seedInput!: TextInput;
-	private genToggles: Partial<Record<keyof WorldGenOptions['enable'], Checkbox>> = {};
+	private readonly layerToggles = new Map<WorldLayer, Checkbox>();
 	private worldMultiplier = 3;
 
 	constructor(
@@ -49,8 +51,8 @@ export class Sidebar {
 		player: Player,
 		grid: Grid,
 		camera: Camera,
-		theme: Theme,
-		onRegenMap: (seed: number, options: WorldGenOptions['enable'], multiplier: number) => void,
+		theme: ColorTheme,
+		onRegenMap: RegenMap,
 		onToggleMapMode: (enabled: boolean) => void
 	) {
 		this.p = p;
@@ -165,9 +167,9 @@ export class Sidebar {
 
 	private showTab(tab: Tab): void {
 		// Update tab button styles via direct DOM
-		const btns = this.tabBar.elt.querySelectorAll('[data-tab]') as NodeListOf<HTMLElement>;
+		const btns = this.tabBar.elt.querySelectorAll<HTMLElement>('[data-tab]');
 		btns.forEach((btn) => {
-			const isActive = (btn as HTMLElement & { dataset: DOMStringMap }).dataset['tab'] === tab;
+			const isActive = btn.dataset.tab === tab;
 			btn.style.fontWeight = isActive ? 'bold' : 'normal';
 			btn.style.background = isActive ? '#2563eb' : 'rgba(255,255,255,0.07)';
 		});
@@ -384,7 +386,7 @@ export class Sidebar {
 		this.spacer(pane);
 		this.sectionTitle(pane, 'Layers');
 
-		const TOGGLES: { key: keyof WorldGenOptions['enable']; label: string }[] = [
+		const TOGGLES: { key: WorldLayer; label: string }[] = [
 			{ key: 'mountains', label: 'Mountains' },
 			{ key: 'hills', label: 'Hills' },
 			{ key: 'lakes', label: 'Lakes' },
@@ -404,7 +406,7 @@ export class Sidebar {
 				storageKey: `gen-layer-${key}`,
 			});
 			cb.init(pane);
-			this.genToggles[key] = cb;
+			this.layerToggles.set(key, cb);
 		}
 
 		this.spacer(pane);
@@ -420,23 +422,23 @@ export class Sidebar {
 		this.sectionTitle(pane, 'Terrain Colors');
 
 		const colors = this.grid.getWorldMapColors();
-		const TERRAIN_COLORS: { key: string; label: string; defaultColor: string }[] = [
-			{ key: 'road', label: 'Road', defaultColor: colors.road },
-			{ key: 'plain', label: 'Plain', defaultColor: colors.plain },
-			{ key: 'mountain', label: 'Mountain', defaultColor: colors.mountain },
-			{ key: 'hill', label: 'Hill', defaultColor: colors.hill || '#A8D08D' },
-			{ key: 'forest', label: 'Forest', defaultColor: colors.forest || '#6B8F6E' },
-			{ key: 'river', label: 'River / Lake', defaultColor: colors.river },
-			{ key: 'sand', label: 'Sand Beach', defaultColor: colors.sand || '#F5E6D3' },
-			{ key: 'coast', label: 'Coastline', defaultColor: colors.coast || '#F4A460' },
-			{ key: 'bridge', label: 'Bridge', defaultColor: colors.bridge || '#DAA520' },
-			{ key: 'village', label: 'Village', defaultColor: colors.village || '#D2B48C' },
+		const TERRAIN_COLORS: { key: keyof WorldMapColors; label: string }[] = [
+			{ key: 'road', label: 'Road' },
+			{ key: 'plain', label: 'Plain' },
+			{ key: 'mountain', label: 'Mountain' },
+			{ key: 'hill', label: 'Hill' },
+			{ key: 'forest', label: 'Forest' },
+			{ key: 'river', label: 'River / Lake' },
+			{ key: 'sand', label: 'Sand Beach' },
+			{ key: 'coast', label: 'Coastline' },
+			{ key: 'bridge', label: 'Bridge' },
+			{ key: 'village', label: 'Village' },
 		];
 
-		for (const { key, label, defaultColor } of TERRAIN_COLORS) {
+		for (const { key, label } of TERRAIN_COLORS) {
 			new ColorInput(this.p, {
 				label,
-				defaultValue: defaultColor,
+				defaultValue: colors[key],
 				storageKey: `world-map-${key}-color`,
 				onChange: (color) => {
 					this.grid.setWorldMapColors({ [key]: color });
@@ -450,20 +452,20 @@ export class Sidebar {
 
 		this.sectionTitle(pane, 'Theme Colors');
 
-		const THEME_COLORS: { key: string; label: string; get: () => string; set: (c: string) => void }[] = [
-			{ key: 'bg', label: 'Background', get: () => this.theme.getBackgroundColor(), set: (c) => this.theme.setBackgroundColor(c) },
-			{ key: 'wall', label: 'Wall', get: () => this.theme.getActiveCellColor(), set: (c) => this.theme.setActiveCellColor(c) },
-			{ key: 'path', label: 'Path', get: () => this.theme.getPathColor(), set: (c) => this.theme.setPathColor(c) },
-			{ key: 'grid', label: 'Grid Lines', get: () => this.theme.getGridColor(), set: (c) => this.theme.setGridColor(c) },
-			{ key: 'player', label: 'Player', get: () => this.theme.getPlayerColor(), set: (c) => this.theme.setPlayerColor(c) },
+		const THEME_COLORS: { key: keyof ColorTheme; storage: 'bg' | 'wall' | 'path' | 'grid' | 'player'; label: string }[] = [
+			{ key: 'background', storage: 'bg', label: 'Background' },
+			{ key: 'activeCell', storage: 'wall', label: 'Wall' },
+			{ key: 'path', storage: 'path', label: 'Path' },
+			{ key: 'grid', storage: 'grid', label: 'Grid Lines' },
+			{ key: 'player', storage: 'player', label: 'Player' },
 		];
 
-		for (const { key, label, get, set } of THEME_COLORS) {
+		for (const { key, storage, label } of THEME_COLORS) {
 			new ColorInput(this.p, {
 				label,
-				defaultValue: get(),
-				storageKey: `${key}-color`,
-				onChange: set,
+				defaultValue: this.theme[key],
+				storageKey: `${storage}-color`,
+				onChange: (color) => { this.theme[key] = color; },
 			}).init(pane);
 		}
 	}
@@ -516,10 +518,8 @@ export class Sidebar {
 	}
 
 	private triggerGenerate(): void {
-		const enable = {} as WorldGenOptions['enable'];
-		for (const [key, cb] of Object.entries(this.genToggles)) {
-			(enable as any)[key] = cb!.getValue();
-		}
+		const enable = { ...DEFAULT_LAYERS };
+		for (const [key, cb] of this.layerToggles) enable[key] = cb.getValue();
 
 		const seedStr = this.seedInput.getValue().trim();
 		const seed = (seedStr && parseInt(seedStr) !== 0) ? parseInt(seedStr) : 0;

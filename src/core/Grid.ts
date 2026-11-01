@@ -2,7 +2,7 @@ import type p5 from 'p5';
 import { WorldMapGenerator, type WorldGenOptions } from '../generators/WorldMapGenerator';
 import { Rng } from '../utils/Rng';
 import type { Camera } from './Camera';
-import { TerrainType } from './TerrainType';
+import { type Terrain, TerrainType } from './TerrainType';
 
 /** Represents a 2D grid position */
 export interface Position {
@@ -15,27 +15,27 @@ export interface WorldMapColors {
 	mountain: string;
 	river: string;
 	plain: string;
-	hill?: string;
-	forest?: string;
-	bridge?: string;
-	coast?: string;
-	village?: string;
-	sand?: string;
+	hill: string;
+	forest: string;
+	bridge: string;
+	coast: string;
+	village: string;
+	sand: string;
 }
 
 export class Grid {
 	// ── Active grid (points to either normalGrid or worldGrid) ──────────────
-	private grid: number[][] = [];
+	private grid: Terrain[][] = [];
 	public width = 0;
 	public height = 0;
 
 	// ── Normal mode (canvas-sized) ──────────────────────────────────────────
-	private normalGrid: number[][] = [];
+	private normalGrid: Terrain[][] = [];
 	private normalWidth = 0;
 	private normalHeight = 0;
 
 	// ── World map mode (multiplier-sized) ──────────────────────────────────
-	private worldGrid: number[][] = [];
+	private worldGrid: Terrain[][] = [];
 	private worldWidth = 0;
 	private worldHeight = 0;
 	private worldOffscreenCanvas?: HTMLCanvasElement;
@@ -80,7 +80,7 @@ export class Grid {
 		this.normalHeight = Math.floor(canvasHeight / this.cellSize);
 
 		this.normalGrid = Array.from({ length: this.normalHeight }, () =>
-			new Array<number>(this.normalWidth).fill(0)
+			new Array<Terrain>(this.normalWidth).fill(TerrainType.EMPTY)
 		);
 
 		if (!this.worldMapMode) {
@@ -130,12 +130,12 @@ export class Grid {
 
 	// ── Cell access ───────────────────────────────────────────────────────────
 
-	getCell(x: number, y: number): number {
-		if (x < 0 || x >= this.width || y < 0 || y >= this.height) return 1;
+	getCell(x: number, y: number): Terrain {
+		if (x < 0 || x >= this.width || y < 0 || y >= this.height) return TerrainType.WALL;
 		return this.grid[y][x];
 	}
 
-	setCell(x: number, y: number, value: number): void {
+	setCell(x: number, y: number, value: Terrain): void {
 		if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
 			if (this.grid[y][x] !== value) {
 				this.grid[y][x] = value;
@@ -159,14 +159,14 @@ export class Grid {
 
 	// ── Coordinate helpers ────────────────────────────────────────────────────
 
-	getCellFromPixel(pixelX: number, pixelY: number): { x: number; y: number } {
+	getCellFromPixel(pixelX: number, pixelY: number): Position {
 		return {
 			x: Math.floor(pixelX / this.cellSize),
 			y: Math.floor(pixelY / this.cellSize)
 		};
 	}
 
-	getCellFromScreen(screenX: number, screenY: number, cam?: Camera): { x: number; y: number } {
+	getCellFromScreen(screenX: number, screenY: number, cam?: Camera): Position {
 		if (cam && this.worldMapMode) {
 			const world = cam.screenToWorld(screenX, screenY);
 			return {
@@ -177,11 +177,11 @@ export class Grid {
 		return this.getCellFromPixel(screenX, screenY);
 	}
 
-	getPixelFromCell(cellX: number, cellY: number): { x: number; y: number } {
+	getPixelFromCell(cellX: number, cellY: number): Position {
 		return { x: cellX * this.cellSize, y: cellY * this.cellSize };
 	}
 
-	getCenterPixelFromCell(cellX: number, cellY: number): { x: number; y: number } {
+	getCenterPixelFromCell(cellX: number, cellY: number): Position {
 		return {
 			x: cellX * this.cellSize + this.cellSize / 2,
 			y: cellY * this.cellSize + this.cellSize / 2
@@ -201,12 +201,12 @@ export class Grid {
 
 	generateRandomMaze(): void {
 		for (let y = 0; y < this.height; y++) {
-			for (let x = 0; x < this.width; x++) this.grid[y][x] = 1;
+			for (let x = 0; x < this.width; x++) this.grid[y][x] = TerrainType.WALL;
 		}
 
-		const stack: { x: number; y: number }[] = [];
+		const stack: Position[] = [];
 		const startPos = { x: 1, y: 1 };
-		this.grid[startPos.y][startPos.x] = 0;
+		this.grid[startPos.y][startPos.x] = TerrainType.EMPTY;
 		stack.push(startPos);
 
 		while (stack.length > 0) {
@@ -214,8 +214,8 @@ export class Grid {
 			const neighbors = this.getUnvisitedNeighbors(current.x, current.y);
 			if (neighbors.length > 0) {
 				const chosen = neighbors[Math.floor(Math.random() * neighbors.length)];
-				this.grid[(current.y + chosen.y) / 2][(current.x + chosen.x) / 2] = 0;
-				this.grid[chosen.y][chosen.x] = 0;
+				this.grid[(current.y + chosen.y) / 2][(current.x + chosen.x) / 2] = TerrainType.EMPTY;
+				this.grid[chosen.y][chosen.x] = TerrainType.EMPTY;
 				stack.push(chosen);
 			} else {
 				stack.pop();
@@ -228,7 +228,7 @@ export class Grid {
 	generateRandomGrid(probability = 0.2): void {
 		for (let y = 0; y < this.height; y++) {
 			for (let x = 0; x < this.width; x++) {
-				this.grid[y][x] = Math.random() < probability ? 1 : 0;
+				this.grid[y][x] = Math.random() < probability ? TerrainType.WALL : TerrainType.EMPTY;
 			}
 		}
 		this.isDirty = true;
@@ -259,10 +259,10 @@ export class Grid {
 		return seed;
 	}
 
-	findNearestRoad(x: number, y: number): { x: number; y: number } | null {
+	findNearestRoad(x: number, y: number): Position | null {
 		const W = this.width;
 		const visited = new Set<number>();
-		const queue: { x: number; y: number }[] = [{ x, y }];
+		const queue: Position[] = [{ x, y }];
 		visited.add(y * W + x);
 
 		while (queue.length > 0) {
@@ -283,14 +283,13 @@ export class Grid {
 
 	// ── Rendering ─────────────────────────────────────────────────────────────
 
-	drawActiveCells(p: p5, activeCellColor?: string, cam?: Camera): void {
+	drawActiveCells(p: p5, color: string, cam: Camera): void {
 		if (this.worldMapMode) {
 			this.drawWorldMap(p, cam);
 			return;
 		}
 
 		this.updateActiveCells();
-		const color = activeCellColor || '#0000ff';
 
 		const needNewLayer = !this.cellsLayer ||
 			!this.cachedLayerSize ||
@@ -305,7 +304,7 @@ export class Grid {
 		}
 
 		if (this.layerDirty || this.cachedActiveColor !== color) {
-			const ctx = (this.cellsLayer as any).drawingContext as CanvasRenderingContext2D;
+			const ctx = this.cellsLayer!.drawingContext as CanvasRenderingContext2D;
 			ctx.clearRect(0, 0, this.cellsLayer!.width, this.cellsLayer!.height);
 			ctx.fillStyle = color;
 			ctx.beginPath();
@@ -328,12 +327,10 @@ export class Grid {
 		p.image(this.cellsLayer!, 0, 0);
 	}
 
-	drawGrid(p: p5, gridColor?: string, cam?: Camera): void {
-		const color = gridColor || '#323232';
-
-		if (this.worldMapMode && cam) {
+	drawGrid(p: p5, color: string, cam: Camera): void {
+		if (this.worldMapMode) {
 			// Direct draw — grid lines shift with camera, no offscreen caching needed
-			const ctx = (p as any).drawingContext as CanvasRenderingContext2D;
+			const ctx = p.drawingContext as CanvasRenderingContext2D;
 			const zoom = cam.zoom;
 			const cs = this.cellSize;
 
@@ -375,7 +372,7 @@ export class Grid {
 		}
 
 		if (this.gridLayerDirty || this.cachedGridColor !== color) {
-			const ctx = (this.gridLayer as any).drawingContext as CanvasRenderingContext2D;
+			const ctx = this.gridLayer!.drawingContext as CanvasRenderingContext2D;
 			ctx.clearRect(0, 0, this.gridLayer!.width, this.gridLayer!.height);
 			ctx.strokeStyle = color;
 			ctx.lineWidth = 1;
@@ -400,7 +397,7 @@ export class Grid {
 		let count = 0;
 		for (let y = 0; y < this.height; y++) {
 			const row = this.grid[y];
-			for (let x = 0; x < this.width; x++) if (row[x] === 1) count++;
+			for (let x = 0; x < this.width; x++) if (row[x] === TerrainType.WALL) count++;
 		}
 		if (this.activeCellsFlat.length < count * 2) {
 			this.activeCellsFlat = new Int16Array(count * 2);
@@ -409,18 +406,18 @@ export class Grid {
 		for (let y = 0; y < this.height; y++) {
 			const row = this.grid[y];
 			for (let x = 0; x < this.width; x++) {
-				if (row[x] === 1) { this.activeCellsFlat[idx++] = x; this.activeCellsFlat[idx++] = y; }
+				if (row[x] === TerrainType.WALL) { this.activeCellsFlat[idx++] = x; this.activeCellsFlat[idx++] = y; }
 			}
 		}
 		this.activeCellCount = count;
 		this.isDirty = false;
 	}
 
-	private getUnvisitedNeighbors(x: number, y: number): { x: number; y: number }[] {
-		const neighbors: { x: number; y: number }[] = [];
+	private getUnvisitedNeighbors(x: number, y: number): Position[] {
+		const neighbors: Position[] = [];
 		for (const { dx, dy } of [{ dx:0,dy:-2 },{ dx:2,dy:0 },{ dx:0,dy:2 },{ dx:-2,dy:0 }]) {
 			const nx = x + dx, ny = y + dy;
-			if (nx > 0 && nx < this.width - 1 && ny > 0 && ny < this.height - 1 && this.grid[ny][nx] === 1) {
+			if (nx > 0 && nx < this.width - 1 && ny > 0 && ny < this.height - 1 && this.grid[ny][nx] === TerrainType.WALL) {
 				neighbors.push({ x: nx, y: ny });
 			}
 		}
@@ -470,33 +467,24 @@ export class Grid {
 			this.worldMapColors.mountain,
 			this.worldMapColors.river,
 			this.worldMapColors.plain,
-			this.worldMapColors.hill     ?? '#A8D08D',
-			this.worldMapColors.forest   ?? '#6B8F6E',
-			this.worldMapColors.bridge   ?? '#DAA520',
-			this.worldMapColors.coast    ?? '#F4A460',
-			this.worldMapColors.village  ?? '#D2B48C',
-			this.worldMapColors.sand     ?? '#F5E6D3',
+			this.worldMapColors.hill,
+			this.worldMapColors.forest,
+			this.worldMapColors.bridge,
+			this.worldMapColors.coast,
+			this.worldMapColors.village,
+			this.worldMapColors.sand,
 		];
 	}
 
-	private drawWorldMap(p: p5, cam?: Camera): void {
+	private drawWorldMap(p: p5, cam: Camera): void {
 		if (this.worldOffscreenDirty) this.buildWorldCanvas();
 		if (!this.worldOffscreenCanvas || this.worldWidth === 0) return;
 
-		const ctx = (p as any).drawingContext as CanvasRenderingContext2D;
-
-		if (cam) {
-			const srcX = cam.offsetX;
-			const srcY = cam.offsetY;
-			const srcW = p.width  / cam.zoom;
-			const srcH = p.height / cam.zoom;
-			ctx.drawImage(
-				this.worldOffscreenCanvas,
-				srcX, srcY, srcW, srcH,
-				0, 0, p.width, p.height
-			);
-		} else {
-			ctx.drawImage(this.worldOffscreenCanvas, 0, 0, p.width, p.height);
-		}
+		const ctx = p.drawingContext as CanvasRenderingContext2D;
+		ctx.drawImage(
+			this.worldOffscreenCanvas,
+			cam.offsetX, cam.offsetY, p.width / cam.zoom, p.height / cam.zoom,
+			0, 0, p.width, p.height
+		);
 	}
 }

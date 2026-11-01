@@ -59,7 +59,7 @@ export class Slider {
 		this.slider.parent(this.container);
 		this.slider.style('width', '200px');
 
-		(this.slider as any).input(() => {
+		this.slider.input(() => {
 			const value = this.getValue();
 			this.updateLabel(value);
 			this.saveToStorage(value);

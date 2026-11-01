@@ -1,18 +1,14 @@
+import type { Position } from '../core/Grid';
 import { TerrainType } from '../core/TerrainType';
 import { RoadUtilities } from './RoadUtilities';
-
-export interface City {
-	x: number;
-	y: number;
-}
 
 /**
  * Generates cities, roads, and settlements
  */
 export class CityAndRoadGenerator extends RoadUtilities {
-	generateCities(): City[] {
+	generateCities(): Position[] {
 		const cityCount = this.randomRange(5, 13);
-		const cities: City[] = [];
+		const cities: Position[] = [];
 		const minDistBetweenCities = 60;
 
 		for (let c = 0; c < cityCount; c++) {
@@ -38,7 +34,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		return cities;
 	}
 
-	generateRoadsConnectingCities(cities: City[]): void {
+	generateRoadsConnectingCities(cities: Position[]): void {
 		for (let i = 0; i < cities.length; i++) {
 			const city = cities[i];
 			const connectionCount = this.randomRange(2, 4);
@@ -51,7 +47,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		}
 	}
 
-	generateRandomRoadBranches(cities: City[]): void {
+	generateRandomRoadBranches(cities: Position[]): void {
 		const branchCount = this.randomRange(20, 50);
 
 		for (let b = 0; b < branchCount; b++) {
@@ -62,11 +58,11 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		}
 	}
 
-	generateVillages(cities: City[]): void {
+	generateVillages(cities: Position[]): void {
 		const villageCount = this.randomRange(15, 35);
 		const minDistFromCity = 40;
 		const minDistBetweenVillages = 30;
-		const villages: City[] = [];
+		const villages: Position[] = [];
 
 		for (let v = 0; v < villageCount; v++) {
 			for (let attempts = 0; attempts < 100; attempts++) {
@@ -170,7 +166,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 	// ========== PRIVATE HELPER METHODS ==========
 
 	/** Finds a valid position for a city, checking distance to other cities */
-	private findValidCityPosition(cities: City[], minDist: number): { x: number; y: number } | null {
+	private findValidCityPosition(cities: Position[], minDist: number): Position | null {
 		const minDistSq = minDist * minDist;
 		for (let attempts = 0; attempts < 150; attempts++) {
 			const x = this.randomRange(0, this.width);
@@ -223,17 +219,17 @@ export class CityAndRoadGenerator extends RoadUtilities {
 
 	/** Returns cities sorted by distance from a given point, excluding the city at excludeIndex */
 	private getSortedCitiesByDistance(
-		from: City,
-		cities: City[],
+		from: Position,
+		cities: Position[],
 		excludeIndex: number
-	): City[] {
+	): Position[] {
 		return cities
 			.filter((_, idx) => idx !== excludeIndex)
 			.sort((a, b) => this.distanceSq(from.x, from.y, a.x, a.y) - this.distanceSq(from.x, from.y, b.x, b.y));
 	}
 
 	/** Finds a valid road cell far from cities for branch starting point */
-	private findRandomRoadStartPoint(cities: City[]): { x: number; y: number } | null {
+	private findRandomRoadStartPoint(cities: Position[]): Position | null {
 		for (let attempts = 0; attempts < 150; attempts++) {
 			const x = this.randomRange(0, this.width);
 			const y = this.randomRange(0, this.height);

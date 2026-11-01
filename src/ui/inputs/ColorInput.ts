@@ -56,7 +56,7 @@ export class ColorInput {
 			this.colorInput.value(this.config.defaultValue);
 		});
 
-		(this.colorInput as any).input(() => {
+		this.colorInput.input(() => {
 			const color = this.getValue();
 			this.saveToStorage(color);
 			this.config.onChange?.(color);

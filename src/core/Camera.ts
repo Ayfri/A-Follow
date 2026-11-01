@@ -1,3 +1,5 @@
+import type { Position } from './Grid';
+
 export class Camera {
 	offsetX = 0;
 	offsetY = 0;
@@ -33,14 +35,14 @@ export class Camera {
 		}
 	}
 
-	screenToWorld(sx: number, sy: number): { x: number; y: number } {
+	screenToWorld(sx: number, sy: number): Position {
 		return {
 			x: sx / this.zoom + this.offsetX,
 			y: sy / this.zoom + this.offsetY,
 		};
 	}
 
-	worldToScreen(wx: number, wy: number): { x: number; y: number } {
+	worldToScreen(wx: number, wy: number): Position {
 		return {
 			x: (wx - this.offsetX) * this.zoom,
 			y: (wy - this.offsetY) * this.zoom,

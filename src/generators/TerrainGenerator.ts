@@ -1,4 +1,5 @@
-import { TerrainType } from '../core/TerrainType';
+import type { Position } from '../core/Grid';
+import { type Terrain, TerrainType } from '../core/TerrainType';
 import type { Rng } from '../utils/Rng';
 
 /**
@@ -8,7 +9,7 @@ import type { Rng } from '../utils/Rng';
 export abstract class TerrainGenerator {
 	protected width: number;
 	protected height: number;
-	protected grid: number[][];
+	protected grid: Terrain[][];
 	protected rng: () => number;
 
 	protected readonly ANGLE_OFFSETS_6 = [
@@ -18,7 +19,7 @@ export abstract class TerrainGenerator {
 
 	protected readonly ANGLE_OFFSETS_4 = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
 
-	constructor(width: number, height: number, grid: number[][], rng: Rng) {
+	constructor(width: number, height: number, grid: Terrain[][], rng: Rng) {
 		this.width = width;
 		this.height = height;
 		this.grid = grid;
@@ -28,7 +29,7 @@ export abstract class TerrainGenerator {
 	// ========== UTILITY FUNCTIONS ==========
 
 	/** Clamps coordinates to grid boundaries */
-	protected clamp(x: number, y: number): { x: number; y: number } {
+	protected clamp(x: number, y: number): Position {
 		return {
 			x: Math.max(0, Math.min(this.width - 1, x)),
 			y: Math.max(0, Math.min(this.height - 1, y))
@@ -41,7 +42,7 @@ export abstract class TerrainGenerator {
 	}
 
 	/** Sets the terrain type at the given coordinates */
-	protected setTerrainAt(x: number, y: number, terrain: number): void {
+	protected setTerrainAt(x: number, y: number, terrain: Terrain): void {
 		if (this.isInBounds(x, y)) {
 			this.grid[y][x] = terrain;
 		}
@@ -94,7 +95,7 @@ export abstract class TerrainGenerator {
 	}
 
 	/** Finds minimum squared distance from a point to any item in a collection */
-	protected findMinDistanceSqTo(x: number, y: number, items: Array<{ x: number; y: number }>): number {
+	protected findMinDistanceSqTo(x: number, y: number, items: Position[]): number {
 		let minSq = Infinity;
 		for (const item of items) {
 			const dx = item.x - x;
@@ -110,7 +111,7 @@ export abstract class TerrainGenerator {
 		centerX: number,
 		centerY: number,
 		radius: number,
-		terrain: number,
+		terrain: Terrain,
 		options: { respectMountains?: boolean; respectWater?: boolean; respectForests?: boolean } = {}
 	): void {
 		const radiusSq = radius * radius;
@@ -135,7 +136,7 @@ export abstract class TerrainGenerator {
 	protected drawTerrainWithWidth(
 		x: number,
 		y: number,
-		terrain: number,
+		terrain: Terrain,
 		width: number = 0
 	): void {
 		for (let dxi = -width; dxi <= width; dxi++) {
@@ -154,7 +155,7 @@ export abstract class TerrainGenerator {
 	}
 
 	/** Counts terrain type in a square area */
-	protected countTerrainInArea(x: number, y: number, radius: number, terrain: number): number {
+	protected countTerrainInArea(x: number, y: number, radius: number, terrain: Terrain): number {
 		let count = 0;
 		for (let dx = -radius; dx <= radius; dx++) {
 			for (let dy = -radius; dy <= radius; dy++) {
