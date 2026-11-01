@@ -314,7 +314,7 @@ export class Sidebar {
 			valueFormatter: (v) => `${v}%`,
 			onChange: (v) => {
 				if (this.grid.isWorldMapMode()) {
-					this.camera.setZoom(v / 100, this.p.width / 2, this.p.height / 2);
+					this.camera.setZoom(v / 100);
 				}
 			}
 		});

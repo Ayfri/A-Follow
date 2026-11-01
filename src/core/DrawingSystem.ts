@@ -11,12 +11,13 @@ export class DrawingSystem {
 	private lockedAxis: 'horizontal' | 'vertical' | null = null;
 	private isDragging = false;
 	private grid: Grid;
-	private camera: Camera | null = null;
+	private camera: Camera;
 	private hasChangedGrid = false;
 
-	constructor(grid: Grid) { this.grid = grid; }
-
-	setCamera(cam: Camera | null): void { this.camera = cam; }
+	constructor(grid: Grid, camera: Camera) {
+		this.grid = grid;
+		this.camera = camera;
+	}
 
 	hasGridChanged(): boolean { return this.hasChangedGrid; }
 	resetGridChanged(): void  { this.hasChangedGrid = false; }
@@ -54,7 +55,7 @@ export class DrawingSystem {
 	}
 
 	private getCell(p: p5): Position {
-		return this.grid.getCellFromScreen(p.mouseX, p.mouseY, this.camera ?? undefined);
+		return this.grid.getCellFromScreen(p.mouseX, p.mouseY, this.camera);
 	}
 
 	handleMousePressed(p: p5): void {

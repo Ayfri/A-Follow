@@ -101,8 +101,8 @@ export class Camera {
 		};
 	}
 
-	/** Immediate zoom (for slider) */
-	setZoom(newZoom: number, anchorSx: number, anchorSy: number): void {
+	/** Immediate zoom (for slider), around the given screen point or the screen center. */
+	setZoom(newZoom: number, anchorSx = this.screenW / 2, anchorSy = this.screenH / 2): void {
 		const worldAnchorX = anchorSx / this.zoom + this.offsetX;
 		const worldAnchorY = anchorSy / this.zoom + this.offsetY;
 		this.zoom = Math.max(Camera.MIN_ZOOM, Math.min(Camera.MAX_ZOOM, newZoom));

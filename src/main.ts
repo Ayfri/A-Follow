@@ -15,7 +15,7 @@ const grid = new Grid(20);
 const player = new Player(5);
 const theme: ColorTheme = { ...DEFAULT_THEME };
 const camera = new Camera();
-const drawingSystem = new DrawingSystem(grid);
+const drawingSystem = new DrawingSystem(grid, camera);
 const pathPreview = new PathPreview();
 
 let mouseCell: Position = { x: -1, y: -1 };
@@ -56,7 +56,6 @@ const sketch = (p: p5) => {
 
 	const toggleMapMode = (enabled: boolean): void => {
 		grid.setWorldMapMode(enabled);
-		drawingSystem.setCamera(enabled ? camera : null);
 
 		if (enabled) snapPlayerToRoad();
 

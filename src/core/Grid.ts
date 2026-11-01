@@ -160,6 +160,10 @@ export class Grid {
 		return this.worldMapMode;
 	}
 
+	hasWorldMap(): boolean {
+		return this.worldWidth > 0;
+	}
+
 	// ── Colors ────────────────────────────────────────────────────────────────
 
 	setWorldMapColors(colors: Partial<WorldMapColors>): void {
@@ -215,8 +219,8 @@ export class Grid {
 		};
 	}
 
-	getCellFromScreen(screenX: number, screenY: number, cam?: Camera): Position {
-		if (cam && this.worldMapMode) {
+	getCellFromScreen(screenX: number, screenY: number, cam: Camera): Position {
+		if (this.worldMapMode) {
 			const world = cam.screenToWorld(screenX, screenY);
 			return {
 				x: Math.floor(world.x / this.cellSize),
