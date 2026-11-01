@@ -20,7 +20,10 @@ export interface SidebarHost {
 const SPEED_STEPS = 40;
 const MAX_SPEED = 5000;
 
-/** Speed is stored as a step index 1..40 on a log scale from 1 to 5000 cells/s, so every range of speeds is easy to reach. */
+/**
+ * Speed is stored as a step index 1..40 on a log scale from 1 to 5000 cells/s, so every range of speeds is easy to reach.
+ * The key differs from the earlier base-200 scale (`player-speed-log`), whose saved indexes would map to other speeds here.
+ */
 const speedFromIndex = (index: number): number => MAX_SPEED ** ((index - 1) / (SPEED_STEPS - 1));
 const indexFromSpeed = (speed: number): number => Math.round(Math.log(speed) / Math.log(MAX_SPEED) * (SPEED_STEPS - 1) + 1);
 
@@ -31,7 +34,7 @@ const formatSpeed = (index: number): string => {
 };
 
 const THEME_COLORS: readonly { key: keyof ColorTheme; storage: string; label: string }[] = [
-	{ key: 'background', storage: 'bg', label: 'Background' },
+	{ key: 'background', storage: 'background', label: 'Background' },
 	{ key: 'wall', storage: 'wall', label: 'Wall' },
 	{ key: 'path', storage: 'path', label: 'Path' },
 	{ key: 'grid', storage: 'grid', label: 'Grid Lines' },
@@ -144,7 +147,7 @@ export class Sidebar {
 
 		const speed = new RangeField({
 			label: 'Speed',
-			setting: Setting.number('player-speed-log', indexFromSpeed(player.getSpeed())),
+			setting: Setting.number('player-speed-step', indexFromSpeed(player.getSpeed())),
 			min: 1,
 			max: SPEED_STEPS,
 			step: 1,

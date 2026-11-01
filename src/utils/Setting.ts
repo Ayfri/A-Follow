@@ -1,4 +1,4 @@
-/** One value in localStorage as JSON under `a-follow-<key>`. The prefix and the JSON encoding are fixed so saved settings keep loading. */
+/** One value in localStorage as JSON under `a-follow-<key>`. The prefix, the JSON encoding and the keys of unchanged settings stay as earlier versions wrote them, so those saves keep loading. */
 export class Setting<T extends string | number | boolean> {
 	private static readonly PREFIX = 'a-follow-';
 	readonly key: string;

@@ -36,7 +36,7 @@ Every setting below is saved in localStorage, except the zoom, which starts at 1
 | Section | Setting | Range or default |
 | --- | --- | --- |
 | Mode | Build | On |
-| Player | Speed | 1 to 5000 cells/s on a log scale, default 5 cells/s |
+| Player | Speed | 1 to 5000 cells/s on a log scale, default step 8 (about 4.6 cells/s) |
 | Grid | Cell Size | 3 to 60 px, default 20 px |
 | Grid | Show grid lines | On. Lines fade out as cells shrink below 10 px and disappear at 4 px. |
 | Grid | Snap to nearest tile | Off. A wall target is replaced by the nearest open cell. |
