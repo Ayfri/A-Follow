@@ -18,6 +18,14 @@ export class GridRenderer {
 	 */
 	private static readonly GRID_FADE_FULL_PX = 10;
 	private static readonly GRID_FADE_HIDDEN_PX = 4;
+	/**
+	 * Time a frame may spend repacking stale chunks, and at least one is repacked per frame so the picture always converges. A fill that
+	 * made ~130 chunks stale (1456 x 822 window, 3 px cells, zoom 25%) repacked them all in one frame of 59 to 98 ms in the browser, about
+	 * 0.5 ms per chunk, of which the cell loop is 0.04 ms in V8 (0.10 to 0.12 ms with a branch per cell, hence the multiplication) and the
+	 * rest is `putImageData` and the canvas upload. A stale chunk keeps drawing its old picture until its turn, and a chunk that is new draws
+	 * empty: a fill appears over a few frames, and a color change shows both colors until every chunk is repacked.
+	 */
+	private static readonly REPACK_BUDGET_MS = 4;
 
 	private readonly grid: WallGrid;
 	private readonly cache = new Map<number, CachedChunk>();
@@ -44,6 +52,8 @@ export class GridRenderer {
 		const firstY = view.y >> CHUNK_BITS;
 		const lastY = (view.y + view.height - 1) >> CHUNK_BITS;
 		const { scale, offsetX, offsetY } = camera;
+		const deadline = performance.now() + GridRenderer.REPACK_BUDGET_MS;
+		let repacked = false;
 
 		ctx.save();
 		ctx.imageSmoothingEnabled = false;
@@ -64,11 +74,12 @@ export class GridRenderer {
 					entry = GridRenderer.createEntry(cx, cy);
 					this.cache.set(key, entry);
 				}
-				if (entry.version !== chunk.version) {
+				if (entry.version !== chunk.version && (!repacked || performance.now() < deadline)) {
 					const { pixels, packed } = this;
-					for (let i = 0; i < pixels.length; i++) pixels[i] = chunk.cells[i] === 1 ? packed : 0;
+					for (let i = 0; i < pixels.length; i++) pixels[i] = chunk.cells[i] * packed;
 					entry.context.putImageData(this.image, 0, 0);
 					entry.version = chunk.version;
+					repacked = true;
 				}
 
 				const left = Math.round((cx * CHUNK_SIZE - offsetX) * scale);

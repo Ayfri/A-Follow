@@ -54,7 +54,7 @@ Generate Maze and Random Grid act on the visible area, including the part under 
 
 ### Chunks
 
-The grid is a map from chunk coordinates to a 128 x 128 `Uint8Array` (1 is a wall). Cells are int32 and a chunk key packs both chunk coordinates into one number, so lookups allocate nothing. A chunk that loses its last wall is deleted. Each chunk carries a version stamp taken from the grid revision at its last change, and the renderer repacks a chunk's canvas only when the stamps differ.
+The grid is a map from chunk coordinates to a 128 x 128 `Uint8Array` (1 is a wall). Cells are int32 and a chunk key packs both chunk coordinates into one number, so lookups allocate nothing. A chunk that loses its last wall is deleted. Each chunk carries a version stamp taken from the grid revision at its last change, and the renderer repacks a chunk's canvas only when the stamps differ. A frame spends at most about 4 ms repacking (and always repacks at least one chunk), so after a fill or a color change a stale chunk keeps its old picture until its turn and the whole view settles over a few frames instead of in one long one.
 
 ### Window and budget
 
