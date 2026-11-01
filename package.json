@@ -21,17 +21,17 @@
   "homepage": "https://afollow.ayfri.com/",
   "license": "MIT",
   "type": "module",
+  "packageManager": "bun@1.4.4",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "dev": "bun --bun vite",
+    "build": "tsc && bun --bun vite build",
+    "preview": "bun --bun vite preview"
   },
   "devDependencies": {
-    "@types/p5": "^1.7.6",
-    "typescript": "~5.9.2",
-    "vite": "~7.1.7"
+    "typescript": "~7.0.2",
+    "vite": "~8.3.5"
   },
   "dependencies": {
-    "p5": "~2.0.5"
+    "p5": "~2.3.4"
   }
 }

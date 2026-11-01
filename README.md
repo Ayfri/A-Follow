@@ -25,8 +25,8 @@ AFollow is an interactive web application demonstrating the A* pathfinding algor
 
 - **p5.js**: Creative coding library for interactive graphics and animations
 - **A* Algorithm**: Efficient pathfinding with Manhattan distance heuristic
-- **TypeScript**: Type-safe JavaScript for better development experience
-- **Vite**: Fast build tool and development server
+- **TypeScript 7**: Type-safe JavaScript, checked by the native Go compiler
+- **Vite 8**: Rolldown-powered build tool and development server, run on Bun
 - **HTML5 Canvas**: Hardware-accelerated graphics rendering
 
 ## How It Works
@@ -42,8 +42,7 @@ The application uses the A* pathfinding algorithm to find the shortest path from
 
 ### Prerequisites
 
-- Node.js (version 16 or higher)
-- pnpm package manager
+- [Bun](https://bun.com) 1.4 or higher (runtime and package manager)
 
 ### Installation
 
@@ -55,12 +54,12 @@ The application uses the A* pathfinding algorithm to find the shortest path from
 
 2. Install dependencies:
    ```bash
-   pnpm install
+   bun install
    ```
 
 3. Run the development server:
    ```bash
-   pnpm run dev
+   bun run dev
    ```
 
 4. Open your browser to `http://localhost:5173` to see the A* pathfinding experiment.
@@ -88,14 +87,14 @@ The application uses the A* pathfinding algorithm to find the shortest path from
 
 To build for production:
 ```bash
-pnpm run build
+bun run build
 ```
 
 ## Preview
 
 To preview the production build:
 ```bash
-pnpm run preview
+bun run preview
 ```
 
 ## Contributing
