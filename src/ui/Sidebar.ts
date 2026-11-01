@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight, createElement, Dices, type IconNode, Zap } from 'lucide';
 import type p5 from 'p5';
 import type { Camera } from '../core/Camera';
 import type { Grid } from '../core/Grid';
@@ -10,6 +11,8 @@ import { Checkbox } from './inputs/Checkbox';
 import { ColorInput } from './inputs/ColorInput';
 import { Slider } from './inputs/Slider';
 import { TextInput } from './inputs/TextInput';
+
+const ICON_ATTRS = { width: 14, height: 14 };
 
 type Tab = 'general' | 'map' | 'generation' | 'terrain' | 'theme';
 
@@ -106,7 +109,7 @@ export class Sidebar {
 		this.collapseBtn.style('align-items', 'center');
 		this.collapseBtn.style('justify-content', 'center');
 		this.collapseBtn.style('z-index', '1001');
-		this.collapseBtn.html(this.chevronSvg('left'));
+		this.collapseBtn.elt.append(createElement(ChevronLeft, ICON_ATTRS));
 		this.collapseBtn.elt.addEventListener('click', () => this.toggleCollapse());
 
 		// Tab bar header
@@ -343,7 +346,7 @@ export class Sidebar {
 
 		this.seedInput = new TextInput(this.p, {
 			label: 'Seed (0 = random)',
-			defaultValue: StorageManager.load('world-map-seed', '0'),
+			defaultValue: '0',
 			placeholder: '0',
 			storageKey: 'world-map-seed',
 		});
@@ -356,11 +359,11 @@ export class Sidebar {
 		seedRow.style('gap', '8px');
 		seedRow.style('margin-bottom', '16px');
 
-		this.makeInlineBtn(seedRow, '🎲 Random seed', () => {
+		this.makeInlineBtn(seedRow, 'Random seed', () => {
 			const seed = Rng.randomSeed();
 			this.seedInput.setValue(String(seed));
 			StorageManager.save('world-map-seed', String(seed));
-		});
+		}, Dices);
 
 		this.spacer(pane);
 		this.sectionTitle(pane, 'World Size');
@@ -406,9 +409,9 @@ export class Sidebar {
 
 		this.spacer(pane);
 
-		this.makeBtn(pane, '⚡ Generate Map', () => {
+		this.makeBtn(pane, 'Generate Map', () => {
 			this.triggerGenerate();
-		}, '#2563eb');
+		}, '#2563eb', Zap);
 	}
 
 	private buildTerrainPane(): void {
@@ -467,7 +470,14 @@ export class Sidebar {
 
 	// ─── Private helpers ──────────────────────────────────────────────────────
 
-	private makeBtn(parent: p5.Element, label: string, onClick: () => void, bg = '#3a3a4a'): p5.Element {
+	private prependIcon(btn: p5.Element, icon: IconNode): void {
+		btn.style('display', 'inline-flex');
+		btn.style('align-items', 'center');
+		btn.style('gap', '6px');
+		btn.elt.prepend(createElement(icon, ICON_ATTRS));
+	}
+
+	private makeBtn(parent: p5.Element, label: string, onClick: () => void, bg = '#3a3a4a', icon?: IconNode): p5.Element {
 		const btn = this.p.createButton(label);
 		btn.parent(parent);
 		btn.style('width', '100%');
@@ -481,12 +491,13 @@ export class Sidebar {
 		btn.style('font-size', '13px');
 		btn.style('font-weight', '500');
 		btn.style('text-align', 'left');
+		if (icon) this.prependIcon(btn, icon);
 		btn.elt.addEventListener('click', (e: Event) => { e.stopPropagation(); onClick(); });
 		btn.elt.addEventListener('mousedown', (e: Event) => e.stopPropagation());
 		return btn;
 	}
 
-	private makeInlineBtn(parent: p5.Element, label: string, onClick: () => void): p5.Element {
+	private makeInlineBtn(parent: p5.Element, label: string, onClick: () => void, icon?: IconNode): p5.Element {
 		const btn = this.p.createButton(label);
 		btn.parent(parent);
 		btn.style('flex', '1');
@@ -497,6 +508,8 @@ export class Sidebar {
 		btn.style('color', 'white');
 		btn.style('cursor', 'pointer');
 		btn.style('font-size', '12px');
+		btn.style('justify-content', 'center');
+		if (icon) this.prependIcon(btn, icon);
 		btn.elt.addEventListener('click', (e: Event) => { e.stopPropagation(); onClick(); });
 		btn.elt.addEventListener('mousedown', (e: Event) => e.stopPropagation());
 		return btn;
@@ -521,22 +534,15 @@ export class Sidebar {
 			this.container.style('width', '0px');
 			this.tabBar.style('display', 'none');
 			this.contentArea.style('display', 'none');
-			this.collapseBtn.html(this.chevronSvg('right'));
+			this.collapseBtn.elt.replaceChildren(createElement(ChevronRight, ICON_ATTRS));
 			this.collapseBtn.style('right', '-28px');
 		} else {
 			this.container.style('width', '300px');
 			this.tabBar.style('display', 'flex');
 			this.contentArea.style('display', 'block');
-			this.collapseBtn.html(this.chevronSvg('left'));
+			this.collapseBtn.elt.replaceChildren(createElement(ChevronLeft, ICON_ATTRS));
 			this.collapseBtn.style('right', '-14px');
 		}
-	}
-
-	private chevronSvg(dir: 'left' | 'right'): string {
-		const path = dir === 'left'
-			? 'M15 18l-6-6 6-6'
-			: 'M9 18l6-6-6-6';
-		return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="${path}"/></svg>`;
 	}
 
 	// ─── Public API ───────────────────────────────────────────────────────────

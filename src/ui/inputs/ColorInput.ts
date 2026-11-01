@@ -10,7 +10,6 @@ export interface ColorConfig {
 
 export class ColorInput {
 	private container!: p5.Element;
-	private label!: p5.Element;
 	private colorInput!: p5.Element;
 	private p: p5;
 	private config: ColorConfig;
@@ -36,10 +35,10 @@ export class ColorInput {
 	}
 
 	private createLabel(): void {
-		this.label = this.p.createP(this.config.label);
-		this.label.parent(this.container);
-		this.label.style('margin', '0 0 8px 0');
-		this.label.style('font-weight', 'bold');
+		const label = this.p.createP(this.config.label);
+		label.parent(this.container);
+		label.style('margin', '0 0 8px 0');
+		label.style('font-weight', 'bold');
 	}
 
 	private createColorInput(): void {
