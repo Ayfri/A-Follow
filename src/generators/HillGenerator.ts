@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { TerrainGenerator } from './TerrainGenerator';
 
 /**
@@ -38,3 +38,4 @@ export class HillGenerator extends TerrainGenerator {
 		}
 	}
 }
+

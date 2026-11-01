@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { TerrainGenerator } from './TerrainGenerator';
 import type { Lake } from './LakeGenerator';
 
@@ -14,14 +14,14 @@ export class RiverGenerator extends TerrainGenerator {
 		const riverCount = this.randomRange(4, 8);
 
 		for (let r = 0; r < riverCount; r++) {
-			let x = Math.random() < 0.5 ? 0 : this.width - 1;
+			let x = this.rng() < 0.5 ? 0 : this.width - 1;
 			let y = this.randomRange(0, this.height);
 
 			const riverLength = this.randomRange(80, 230);
 			const riverWidth = this.randomRange(1, 3);
-			let currentAngle = (Math.random() - 0.5) * Math.PI;
+			let currentAngle = (this.rng() - 0.5) * Math.PI;
 
-			const targetLake = lakes.length > 0 && Math.random() < 0.6 ? lakes[this.randomRange(0, lakes.length)] : null;
+			const targetLake = lakes.length > 0 && this.rng() < 0.6 ? lakes[this.randomRange(0, lakes.length)] : null;
 
 			for (let i = 0; i < riverLength; i++) {
 				// Draw river at current position
@@ -62,7 +62,7 @@ export class RiverGenerator extends TerrainGenerator {
 					if (!foundPath) break;
 				} else {
 					// Add natural variation
-					currentAngle += (Math.random() - 0.5) * 0.4;
+					currentAngle += (this.rng() - 0.5) * 0.4;
 
 					// If targeting a lake, adjust direction towards it
 					if (targetLake) {
@@ -79,3 +79,4 @@ export class RiverGenerator extends TerrainGenerator {
 		}
 	}
 }
+

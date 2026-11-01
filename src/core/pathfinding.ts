@@ -1,4 +1,4 @@
-import type { Grid } from './grid';
+import type { Grid } from './Grid';
 
 // A* Pathfinding Algorithm
 

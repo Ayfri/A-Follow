@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { RoadUtilities } from './RoadUtilities';
 
 export interface City {
@@ -196,7 +196,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		for (let dx = -citySize; dx <= citySize; dx++) {
 			for (let dy = -citySize; dy <= citySize; dy++) {
 				const dist = Math.sqrt(dx * dx + dy * dy);
-				const distVariation = (Math.random() - 0.5) * 4;
+				const distVariation = (this.rng() - 0.5) * 4;
 				if (dist + distVariation > citySize) continue;
 
 				const nx = x + dx;
@@ -210,7 +210,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 				let isRoad = isRoadX || isRoadY;
 
 				// Add randomness for organic feel
-				if (isRoad && Math.random() < 0.15) {
+				if (isRoad && this.rng() < 0.15) {
 					isRoad = false;
 				}
 
@@ -258,7 +258,7 @@ export class CityAndRoadGenerator extends RoadUtilities {
 	/** Draws a road branch from starting point */
 	private drawRoadBranch(startX: number, startY: number): void {
 		const branchLength = this.randomRange(25, 125);
-		const angle = Math.random() * Math.PI * 2;
+		const angle = this.rng() * Math.PI * 2;
 		const angleVariation = 0.6;
 
 		let currentAngle = angle;
@@ -285,10 +285,10 @@ export class CityAndRoadGenerator extends RoadUtilities {
 				if (this.isPlain(nextX, nextY)) {
 					consecutiveEmpty++;
 					const variation = consecutiveEmpty > 5 ? angleVariation * 0.5 : angleVariation;
-					currentAngle += (Math.random() - 0.5) * variation;
+					currentAngle += (this.rng() - 0.5) * variation;
 				} else {
 					consecutiveEmpty = 0;
-					currentAngle += (Math.random() - 0.5) * angleVariation;
+					currentAngle += (this.rng() - 0.5) * angleVariation;
 				}
 			}
 
@@ -321,3 +321,4 @@ export class CityAndRoadGenerator extends RoadUtilities {
 		return false;
 	}
 }
+

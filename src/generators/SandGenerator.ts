@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { TerrainGenerator } from './TerrainGenerator';
 import type { Lake } from './LakeGenerator';
 
@@ -118,3 +118,4 @@ export class SandGenerator extends TerrainGenerator {
 		return false;
 	}
 }
+

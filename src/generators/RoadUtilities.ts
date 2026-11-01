@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { TerrainGenerator } from './TerrainGenerator';
 
 /**
@@ -22,7 +22,7 @@ export class RoadUtilities extends TerrainGenerator {
 				const nx = cx + dx;
 				const ny = cy + dy;
 				if (!this.isInBounds(nx, ny)) continue;
-				if (this.grid[ny][nx] === TerrainType.FOREST && Math.random() < chance) {
+				if (this.grid[ny][nx] === TerrainType.FOREST && this.rng() < chance) {
 					this.setTerrainAt(nx, ny, TerrainType.PLAIN);
 				}
 			}
@@ -132,7 +132,7 @@ export class RoadUtilities extends TerrainGenerator {
 				const baseCost = terrain === TerrainType.ROAD ? 0.5 : 1;
 				let penalty = 1;
 				if (terrain === TerrainType.FOREST) {
-					penalty = Math.random() < 0.12 ? 1 : 3;
+					penalty = this.rng() < 0.12 ? 1 : 3;
 				}
 
 				const tentG = cg + DCOST[d] * baseCost * penalty;
@@ -172,7 +172,7 @@ export class RoadUtilities extends TerrainGenerator {
 						this.setTerrainAt(nx, ny, TerrainType.ROAD);
 						// If we cut through forest, clear a small area around the road (deforestation)
 						if (prevTerrain === TerrainType.FOREST) {
-							if (Math.random() < 0.75) {
+							if (this.rng() < 0.75) {
 								this.deforestArea(nx, ny, 2, 0.55);
 							}
 						}
@@ -203,7 +203,7 @@ export class RoadUtilities extends TerrainGenerator {
 								const prevTerrain = this.grid[ny][nx];
 								this.setTerrainAt(nx, ny, TerrainType.ROAD);
 								if (prevTerrain === TerrainType.FOREST) {
-									if (Math.random() < 0.75) this.deforestArea(nx, ny, 2, 0.55);
+									if (this.rng() < 0.75) this.deforestArea(nx, ny, 2, 0.55);
 								}
 							}
 						}
@@ -220,7 +220,7 @@ export class RoadUtilities extends TerrainGenerator {
 									const prevTerrain = this.grid[ny][nx];
 									this.setTerrainAt(nx, ny, TerrainType.ROAD);
 									if (prevTerrain === TerrainType.FOREST) {
-										if (Math.random() < 0.75) this.deforestArea(nx, ny, 2, 0.55);
+										if (this.rng() < 0.75) this.deforestArea(nx, ny, 2, 0.55);
 									}
 								}
 							}
@@ -262,7 +262,7 @@ export class RoadUtilities extends TerrainGenerator {
 						const prevTerrain = this.grid[ny][nx];
 						this.setTerrainAt(nx, ny, TerrainType.ROAD);
 						if (prevTerrain === TerrainType.FOREST) {
-							if (Math.random() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
+							if (this.rng() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
 						}
 					}
 				}
@@ -287,7 +287,7 @@ export class RoadUtilities extends TerrainGenerator {
 							const prevTerrain = this.grid[ny][nx];
 							this.setTerrainAt(nx, ny, TerrainType.ROAD);
 							if (prevTerrain === TerrainType.FOREST) {
-								if (Math.random() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
+								if (this.rng() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
 							}
 						}
 					}
@@ -304,7 +304,7 @@ export class RoadUtilities extends TerrainGenerator {
 							const prevTerrain = this.grid[ny][nx];
 							this.setTerrainAt(nx, ny, TerrainType.ROAD);
 							if (prevTerrain === TerrainType.FOREST) {
-								if (Math.random() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
+								if (this.rng() < 0.6) this.deforestArea(nx, ny, 1, 0.5);
 							}
 						}
 					}
@@ -328,3 +328,4 @@ export class RoadUtilities extends TerrainGenerator {
 		}
 	}
 }
+

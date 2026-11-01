@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { TerrainGenerator } from './TerrainGenerator';
 import type { Lake } from './LakeGenerator';
 
@@ -15,14 +15,14 @@ export class ForestGenerator extends TerrainGenerator {
 		const forestCount = this.randomRange(10, 25); // More forests but smaller
 
 		for (let f = 0; f < forestCount; f++) {
-			let x = Math.floor(Math.random() * this.width);
-			let y = Math.floor(Math.random() * this.height);
+			let x = Math.floor(this.rng() * this.width);
+			let y = Math.floor(this.rng() * this.height);
 
 			// Try to find a position not on mountain, water, or too close to lakes
 			let attempts = 0;
 			while ((this.grid[y][x] === TerrainType.MOUNTAIN || this.isWater(x, y)) && attempts < 50) {
-				x = Math.floor(Math.random() * this.width);
-				y = Math.floor(Math.random() * this.height);
+				x = Math.floor(this.rng() * this.width);
+				y = Math.floor(this.rng() * this.height);
 				attempts++;
 			}
 
@@ -33,17 +33,17 @@ export class ForestGenerator extends TerrainGenerator {
 			if (minDistToLake < 20) continue;
 
 			// Large but not excessive radii for forests (25-60 instead of 50-120)
-			const forestRadius = 25 + Math.floor(Math.random() * 35);
+			const forestRadius = 25 + Math.floor(this.rng() * 35);
 			// Moderate density for more natural look
-			const forestDensity = Math.random() * 0.3 + 0.6; // ~60-90% density
+			const forestDensity = this.rng() * 0.3 + 0.6; // ~60-90% density
 
 			// Use organic shape generation like lakes but with controlled randomness
-			const radiusX = forestRadius * (0.7 + Math.random() * 0.6); // Less variation
-			const radiusY = forestRadius * (0.7 + Math.random() * 0.6);
-			const rotation = Math.random() * Math.PI * 2;
+			const radiusX = forestRadius * (0.7 + this.rng() * 0.6); // Less variation
+			const radiusY = forestRadius * (0.7 + this.rng() * 0.6);
+			const rotation = this.rng() * Math.PI * 2;
 
 			// Create convex forest shapes using ellipse + moderate perturbation
-			const shapeType = Math.floor(Math.random() * 3); // Fewer shape variations
+			const shapeType = Math.floor(this.rng() * 3); // Fewer shape variations
 
 			for (let dx = -forestRadius; dx <= forestRadius; dx++) {
 				for (let dy = -forestRadius; dy <= forestRadius; dy++) {
@@ -58,7 +58,7 @@ export class ForestGenerator extends TerrainGenerator {
 					if (shapeType === 0) {
 						// Smooth ellipse with moderate perturbation
 						const ellipseDistance = Math.sqrt((rotatedX / radiusX) ** 2 + (rotatedY / radiusY) ** 2);
-						const moderateNoise = Math.sin(Math.atan2(rotatedY, rotatedX) * 4) * 0.12 + Math.random() * 0.08;
+						const moderateNoise = Math.sin(Math.atan2(rotatedY, rotatedX) * 4) * 0.12 + this.rng() * 0.08;
 						isForestPart = ellipseDistance + moderateNoise <= 1.1;
 					} else if (shapeType === 1) {
 						// Elongated bean shape
@@ -67,7 +67,7 @@ export class ForestGenerator extends TerrainGenerator {
 						const ellipseDistance = Math.sqrt(
 							(rotatedX / (radiusX * radiusModifier)) ** 2 + (rotatedY / radiusY) ** 2
 						);
-						const moderateNoise = Math.random() * 0.1;
+						const moderateNoise = this.rng() * 0.1;
 						isForestPart = ellipseDistance + moderateNoise <= 1.1;
 					} else {
 						// Amoeba-like with controlled randomness
@@ -77,7 +77,7 @@ export class ForestGenerator extends TerrainGenerator {
 						const ellipseDistance = Math.sqrt(
 							(rotatedX / (radiusX * radiusModifier)) ** 2 + (rotatedY / (radiusY * radiusModifier)) ** 2
 						);
-						const moderateNoise = Math.random() * 0.12;
+						const moderateNoise = this.rng() * 0.12;
 						isForestPart = ellipseDistance + moderateNoise <= 1.15;
 					}
 
@@ -88,7 +88,7 @@ export class ForestGenerator extends TerrainGenerator {
 						// Don't overwrite mountains or water
 						if (this.grid[ny][nx] !== TerrainType.MOUNTAIN && !this.isWater(nx, ny)) {
 							// Random forest density with some gaps for realism
-							if (Math.random() < forestDensity) {
+							if (this.rng() < forestDensity) {
 								this.setTerrainAt(nx, ny, TerrainType.FOREST);
 							}
 						}
@@ -98,3 +98,4 @@ export class ForestGenerator extends TerrainGenerator {
 		}
 	}
 }
+

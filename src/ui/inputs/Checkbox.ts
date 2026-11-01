@@ -1,5 +1,5 @@
 import type p5 from 'p5';
-import { StorageManager } from '../StorageManager';
+import { StorageManager } from '../../utils/StorageManager';
 
 export interface CheckboxOptions {
 	label: string;
@@ -93,3 +93,4 @@ export class Checkbox {
 		this.container?.remove();
 	}
 }
+

@@ -1,4 +1,5 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
+import type { Rng } from '../utils/Random';
 
 /**
  * Base class for terrain generation algorithms
@@ -8,6 +9,7 @@ export abstract class TerrainGenerator {
 	protected width: number;
 	protected height: number;
 	protected grid: number[][];
+	protected rng: () => number;
 
 	protected readonly ANGLE_OFFSETS_6 = [
 		Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2,
@@ -16,10 +18,11 @@ export abstract class TerrainGenerator {
 
 	protected readonly ANGLE_OFFSETS_4 = [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
 
-	constructor(width: number, height: number, grid: number[][]) {
+	constructor(width: number, height: number, grid: number[][], rng?: Rng) {
 		this.width = width;
 		this.height = height;
 		this.grid = grid;
+		this.rng = rng ? () => rng.random() : Math.random;
 	}
 
 	// ========== UTILITY FUNCTIONS ==========
@@ -217,8 +220,9 @@ export abstract class TerrainGenerator {
 
 	/** Generates random integer between min (inclusive) and max (exclusive) */
 	protected randomRange(min: number, max: number): number {
-		return min + Math.floor(Math.random() * (max - min));
+		return min + Math.floor(this.rng() * (max - min));
 	}
 
 	abstract generate(): void;
 }
+

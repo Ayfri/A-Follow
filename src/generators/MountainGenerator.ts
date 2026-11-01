@@ -1,4 +1,4 @@
-import { TerrainType } from '../grid';
+import { TerrainType } from '../core/Grid';
 import { TerrainGenerator } from './TerrainGenerator';
 
 /**
@@ -14,7 +14,7 @@ export class MountainGenerator extends TerrainGenerator {
 
 			const chainLength = this.randomRange(60, 160);
 			const maxChainWidth = this.randomRange(3, 6);
-			const mainAngle = Math.random() * Math.PI * 2;
+			const mainAngle = this.rng() * Math.PI * 2;
 
 			for (let i = 0; i < chainLength; i++) {
 				const progressRatio = i / chainLength;
@@ -23,7 +23,7 @@ export class MountainGenerator extends TerrainGenerator {
 
 				this.drawCircularArea(x, y, chainWidth, TerrainType.MOUNTAIN);
 
-				const angle = mainAngle + (Math.random() - 0.5) * 0.5;
+				const angle = mainAngle + (this.rng() - 0.5) * 0.5;
 				const clamped = this.clamp(x + Math.floor(Math.cos(angle) * 2), y + Math.floor(Math.sin(angle) * 2));
 				x = clamped.x;
 				y = clamped.y;
@@ -38,7 +38,8 @@ export class MountainGenerator extends TerrainGenerator {
 		} else if (progressRatio > 0.7) {
 			return (1 - progressRatio) / 0.3; // Shrinking phase
 		} else {
-			return 0.8 + Math.random() * 0.4; // Middle section
+			return 0.8 + this.rng() * 0.4; // Middle section
 		}
 	}
 }
+
