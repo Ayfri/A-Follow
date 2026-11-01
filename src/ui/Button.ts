@@ -2,7 +2,6 @@ import { createElement, type IconNode } from 'lucide';
 
 export interface ButtonOptions {
 	icon?: IconNode;
-	variant?: 'primary' | 'secondary';
 	iconOnly?: boolean;
 }
 
@@ -14,9 +13,13 @@ export class Button {
 		this.iconOnly = options.iconOnly ?? false;
 		this.element = Object.assign(document.createElement('button'), {
 			type: 'button',
-			className: `button button--${options.variant ?? 'secondary'}${this.iconOnly ? ' button--icon' : ''}`
+			className: this.iconOnly ? 'button button--icon' : 'button'
 		});
-		this.element.addEventListener('click', onClick);
+		this.element.addEventListener('click', (event) => {
+			onClick();
+			/** A mouse click (`detail` > 0) drops the focus so a later Space reaches p5 instead of firing the button again. */
+			if (event.detail > 0) this.element.blur();
+		});
 		this.setLabel(label, options.icon);
 	}
 

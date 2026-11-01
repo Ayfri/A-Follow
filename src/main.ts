@@ -23,6 +23,11 @@ const pathPreview = new PathPreview();
 let pan: { cellX: number; cellY: number } | null = null;
 /** False until the first pointer move over the canvas (p5 reports the mouse at (0, 0) before that) and while the pointer is off it. */
 let hovering = false;
+/**
+ * `event.code` of every key held. p5's `keyIsDown` reads its own code set for arrows and Space and never clears it on blur,
+ * so a key released while the window was away would stay down. Keys the sidebar consumes never reach the window listener.
+ */
+const held = new Set<string>();
 
 /** Screen pixels per second, so arrow panning feels the same at every zoom and cell size. */
 const PAN_SPEED = 400;
@@ -40,6 +45,9 @@ const sketch = (p: p5) => {
 		 * control the position sits under the panel. Hovering ends when the pointer leaves the canvas and resumes with the next move over it.
 		 */
 		canvas.addEventListener('pointerleave', () => { hovering = false; });
+		window.addEventListener('keydown', (event) => held.add(event.code));
+		window.addEventListener('keyup', (event) => held.delete(event.code));
+		window.addEventListener('blur', () => held.clear());
 
 		camera.setScreenSize(p.width, p.height);
 		camera.centerOn(0, 0);
@@ -58,19 +66,17 @@ const sketch = (p: p5) => {
 		const step = PAN_SPEED * dt / camera.scale;
 		let dx = 0;
 		let dy = 0;
-		if (p.keyIsDown(p.LEFT_ARROW))  dx -= step;
-		if (p.keyIsDown(p.RIGHT_ARROW)) dx += step;
-		if (p.keyIsDown(p.UP_ARROW))    dy -= step;
-		if (p.keyIsDown(p.DOWN_ARROW))  dy += step;
+		if (held.has('ArrowLeft'))  dx -= step;
+		if (held.has('ArrowRight')) dx += step;
+		if (held.has('ArrowUp'))    dy -= step;
+		if (held.has('ArrowDown'))  dy += step;
 		if (dx !== 0 || dy !== 0) camera.pan(dx, dy);
 
 		p.background(theme.background);
 		const ctx = p.drawingContext as CanvasRenderingContext2D;
 		renderer.drawWalls(ctx, camera, theme.wall);
 
-		if (hovering) {
-			pathPreview.update(grid, player, camera.cellAt(p.mouseX, p.mouseY), camera.visibleRect(), sidebar.snapToNearest);
-		}
+		pathPreview.update(grid, player, hovering ? camera.cellAt(p.mouseX, p.mouseY) : null, camera.visibleRect(), sidebar.snapToNearest);
 		pathPreview.draw(ctx, camera, player, theme.path);
 
 		if (sidebar.showGrid) renderer.drawLines(ctx, camera, theme.grid);
@@ -78,7 +84,7 @@ const sketch = (p: p5) => {
 		player.draw(p, camera, theme.player);
 		player.update(p);
 
-		const wanted = pan ? 'grabbing' : sidebar.build && !p.keyIsDown('Space') ? 'crosshair' : 'grab';
+		const wanted = pan ? 'grabbing' : sidebar.build && !held.has('Space') ? 'crosshair' : 'grab';
 		if (wanted !== cursor) {
 			canvas.style.cursor = wanted;
 			cursor = wanted;
@@ -90,10 +96,13 @@ const sketch = (p: p5) => {
 	};
 
 	p.mousePressed = () => {
+		/** p5 clears `mouseIsPressed` on blur without calling `mouseReleased`, so a drag cut by a blur is ended here. */
+		pan = null;
+		drawing.end();
 		hovering = true;
 
 		const { left, right, center } = p.mouseButton;
-		if (center || (left && (p.keyIsDown('Space') || !sidebar.build))) {
+		if (center || (left && (held.has('Space') || !sidebar.build))) {
 			const cell = camera.screenToCell(p.mouseX, p.mouseY);
 			pan = { cellX: cell.x, cellY: cell.y };
 		} else if (sidebar.build && (left || right)) {
@@ -108,6 +117,7 @@ const sketch = (p: p5) => {
 	};
 
 	p.mouseDragged = () => {
+		hovering = true;
 		if (pan) camera.moveTo(pan.cellX - p.mouseX / camera.scale, pan.cellY - p.mouseY / camera.scale);
 		else drawing.drag(camera.cellAt(p.mouseX, p.mouseY), p.keyIsDown(p.SHIFT));
 	};

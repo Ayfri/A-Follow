@@ -10,8 +10,14 @@ export class PathPreview {
 	private revision = -1;
 	private snap = false;
 
-	/** With `snap`, a wall target is replaced by the nearest open cell. */
-	update(grid: WallGrid, player: Player, target: Position, view: CellRect, snap: boolean): void {
+	/**
+	 * `hovered` is the cell under the cursor, or null when the cursor is away: the last target is kept, so a maze, a clear or the
+	 * snap option changed from the sidebar still recompute the path. With `snap`, a wall target is replaced by the nearest open cell.
+	 */
+	update(grid: WallGrid, player: Player, hovered: Position | null, view: CellRect, snap: boolean): void {
+		const target = hovered ?? this.target;
+		if (target === null) return;
+
 		if (
 			this.target !== null && this.target.x === target.x && this.target.y === target.y &&
 			this.revision === grid.revision && this.snap === snap
@@ -34,7 +40,8 @@ export class PathPreview {
 
 		const view = camera.visibleRect();
 		const { scale, offsetX, offsetY } = camera;
-		const size = Math.max(scale, 1);
+		let lastLeft = Number.NaN;
+		let lastTop = Number.NaN;
 
 		ctx.save();
 		ctx.fillStyle = color;
@@ -42,7 +49,16 @@ export class PathPreview {
 		for (let i = first; i < path.length; i++) {
 			const { x, y } = path[i];
 			if (x < view.x || x >= view.x + view.width || y < view.y || y >= view.y + view.height) continue;
-			ctx.rect((x - offsetX) * scale, (y - offsetY) * scale, size, size);
+
+			/** Edges are rounded like the walls. Zoomed out, consecutive cells on the same pixel add nothing, so they are skipped. */
+			const left = Math.round((x - offsetX) * scale);
+			const top = Math.round((y - offsetY) * scale);
+			if (left === lastLeft && top === lastTop) continue;
+			lastLeft = left;
+			lastTop = top;
+			const width = Math.max(Math.round((x + 1 - offsetX) * scale) - left, 1);
+			const height = Math.max(Math.round((y + 1 - offsetY) * scale) - top, 1);
+			ctx.rect(left, top, width, height);
 		}
 		ctx.fill();
 		ctx.restore();

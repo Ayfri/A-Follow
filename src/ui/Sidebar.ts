@@ -47,9 +47,16 @@ const HINTS: readonly (readonly [keys: readonly string[], action: string])[] = [
 	[['Wheel'], 'Zoom']
 ];
 
-/** Controls keep the keys they use; other keys on a plain button still reach p5, so arrows pan right after clicking Generate Maze. */
-const consumed = (event: KeyboardEvent): boolean =>
-	!(event.target instanceof HTMLButtonElement) || event.target.role === 'tab' || event.key === ' ' || event.key === 'Enter';
+const TAB_KEYS: ReadonlySet<string> = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End']);
+const RANGE_KEYS: ReadonlySet<string> = new Set([...TAB_KEYS, 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown']);
+const ACTIVATION_KEYS: ReadonlySet<string> = new Set([' ', 'Enter']);
+
+/** A control keeps only the keys it uses (sliders: arrows and paging, switches and buttons: Space and Enter), the rest reaches p5. */
+const consumed = ({ target, key }: KeyboardEvent): boolean => {
+	if (target instanceof HTMLInputElement) return (target.type === 'range' ? RANGE_KEYS : ACTIVATION_KEYS).has(key);
+	if (target instanceof HTMLButtonElement) return ACTIVATION_KEYS.has(key) || (target.role === 'tab' && TAB_KEYS.has(key));
+	return false;
+};
 
 export class Sidebar {
 	readonly element: HTMLElement;
