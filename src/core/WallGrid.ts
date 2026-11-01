@@ -17,6 +17,7 @@ export interface CellRect {
  */
 export const CHUNK_BITS = 7;
 export const CHUNK_SIZE = 1 << CHUNK_BITS;
+/** With `>> CHUNK_BITS` (floors negatives) and `& CHUNK_MASK` (wraps them), any int32 cell maps to its chunk and its slot in it. */
 const CHUNK_MASK = CHUNK_SIZE - 1;
 
 /** Cells are int32, so chunk coordinates fit 25 signed bits. */

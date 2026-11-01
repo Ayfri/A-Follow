@@ -1,4 +1,4 @@
-/** One value in localStorage as JSON under `a-follow-<key>`, the exact format older versions wrote, so saved settings survive. */
+/** One value in localStorage as JSON under `a-follow-<key>`. The prefix and the JSON encoding are fixed so saved settings keep loading. */
 export class Setting<T extends string | number | boolean> {
 	private static readonly PREFIX = 'a-follow-';
 	readonly key: string;
@@ -17,10 +17,6 @@ export class Setting<T extends string | number | boolean> {
 
 	static boolean(key: string, fallback: boolean): Setting<boolean> {
 		return new Setting(key, fallback, (value): value is boolean => typeof value === 'boolean');
-	}
-
-	static text(key: string, fallback: string): Setting<string> {
-		return new Setting(key, fallback, (value): value is string => typeof value === 'string');
 	}
 
 	static color(key: string, fallback: string): Setting<string> {

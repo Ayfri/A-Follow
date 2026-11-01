@@ -205,8 +205,8 @@ export class PathFinder {
 	}
 
 	/**
-	 * Walks back from the goal through the entry directions. The last improvement of a cell is the entry that gets popped
-	 * and expanded, so this is the same path as following per-entry parent links.
+	 * Walks back from the goal through the entry directions. A cell's direction comes from its last improvement, which is the entry
+	 * that gets popped and expanded, so a stale entry never decides the path.
 	 */
 	private rebuild(window: CellRect, startCell: number, goalCell: number): Position[] {
 		const { x: ox, y: oy, width: W } = window;

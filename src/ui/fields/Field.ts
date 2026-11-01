@@ -13,7 +13,6 @@ type InputType = 'range' | 'checkbox' | 'color';
 export abstract class Field<T extends Primitive> {
 	private static nextId = 0;
 	readonly element: HTMLDivElement;
-	/** Public so the Sidebar can disable it. */
 	readonly input: HTMLInputElement;
 	protected readonly label: HTMLLabelElement;
 	private readonly options: FieldOptions<T>;
