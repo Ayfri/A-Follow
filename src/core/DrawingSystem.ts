@@ -28,12 +28,9 @@ export class DrawingSystem {
 		const sy = y0 < y1 ? 1 : -1;
 		let err = dx - dy;
 		let x = x0, y = y0;
-		const drawn = new Set<number>();
-		const W = this.grid.width;
 
 		while (true) {
-			const k = y * W + x;
-			if (!drawn.has(k)) { this.grid.setCell(x, y, value); drawn.add(k); }
+			this.grid.setCell(x, y, value);
 			if (x === x1 && y === y1) break;
 			const e2 = 2 * err;
 			if (e2 > -dy) { err -= dy; x += sx; }

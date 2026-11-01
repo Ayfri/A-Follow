@@ -23,6 +23,40 @@ export interface WorldMapColors {
 	sand: string;
 }
 
+/** Offscreen p5 layer redrawn only when stale: marked dirty, drawn with another color, or the canvas size changed. */
+class CachedLayer {
+	dirty = true;
+	color?: string;
+	private graphics?: p5.Graphics;
+	private width = 0;
+	private height = 0;
+
+	/** Returns the layer, recreating it (and marking it dirty) when the canvas size changed. */
+	get(p: p5): p5.Graphics {
+		if (!this.graphics || this.width !== p.width || this.height !== p.height) {
+			this.graphics?.remove();
+			this.graphics = p.createGraphics(p.width, p.height);
+			this.width = p.width;
+			this.height = p.height;
+			this.dirty = true;
+		}
+		return this.graphics;
+	}
+
+	isStale(color: string): boolean {
+		return this.dirty || this.color !== color;
+	}
+
+	markDrawn(color: string): void {
+		this.color = color;
+		this.dirty = false;
+	}
+}
+
+/** Neighbor order of the nearest-cell search: +x, -x, +y, -y. */
+const NEIGHBOR_DX = [1, -1, 0, 0];
+const NEIGHBOR_DY = [0, 0, 1, -1];
+
 export class Grid {
 	// ── Active grid (points to either normalGrid or worldGrid) ──────────────
 	private grid: Terrain[][] = [];
@@ -60,14 +94,8 @@ export class Grid {
 	private isDirty = true;
 	private activeCellsFlat: Int16Array = new Int16Array(0);
 	private activeCellCount = 0;
-	private cellsLayer?: p5.Graphics;
-	private layerDirty = true;
-	private cachedActiveColor?: string;
-	private cachedLayerSize?: { w: number; h: number };
-	private gridLayer?: p5.Graphics;
-	private gridLayerDirty = true;
-	private cachedGridColor?: string;
-	private cachedGridLayerSize?: { w: number; h: number };
+	private readonly cellsLayer = new CachedLayer();
+	private readonly gridLayer = new CachedLayer();
 
 	constructor(cellSize = 20) {
 		this.cellSize = cellSize;
@@ -89,9 +117,8 @@ export class Grid {
 			this.height = this.normalHeight;
 		}
 
-		this.gridLayerDirty = true;
-		this.layerDirty = true;
-		this.isDirty = true;
+		this.gridLayer.dirty = true;
+		this.markCellsDirty();
 	}
 
 	// ── World map mode toggle ─────────────────────────────────────────────────
@@ -109,8 +136,7 @@ export class Grid {
 			this.height = this.normalHeight;
 		}
 
-		this.isDirty = true;
-		this.layerDirty = true;
+		this.markCellsDirty();
 	}
 
 	isWorldMapMode(): boolean {
@@ -142,8 +168,7 @@ export class Grid {
 				if (this.worldMapMode) {
 					this.worldOffscreenDirty = true;
 				} else {
-					this.isDirty = true;
-					this.layerDirty = true;
+					this.markCellsDirty();
 				}
 			}
 		}
@@ -192,9 +217,8 @@ export class Grid {
 
 	setCellSize(size: number): void {
 		this.cellSize = size;
-		this.gridLayerDirty = true;
-		this.isDirty = true;
-		this.layerDirty = true;
+		this.gridLayer.dirty = true;
+		this.markCellsDirty();
 	}
 
 	// ── Generation ────────────────────────────────────────────────────────────
@@ -221,8 +245,7 @@ export class Grid {
 				stack.pop();
 			}
 		}
-		this.isDirty = true;
-		this.layerDirty = true;
+		this.markCellsDirty();
 	}
 
 	generateRandomGrid(probability = 0.2): void {
@@ -231,8 +254,7 @@ export class Grid {
 				this.grid[y][x] = Math.random() < probability ? TerrainType.WALL : TerrainType.EMPTY;
 			}
 		}
-		this.isDirty = true;
-		this.layerDirty = true;
+		this.markCellsDirty();
 	}
 
 	/**
@@ -259,23 +281,35 @@ export class Grid {
 		return seed;
 	}
 
-	findNearestRoad(x: number, y: number): Position | null {
-		const W = this.width;
-		const visited = new Set<number>();
-		const queue: Position[] = [{ x, y }];
-		visited.add(y * W + x);
+	/**
+	 * Breadth-first search for the closest cell (4-neighborhood) satisfying `match`, starting at (x, y).
+	 * An out-of-bounds start is tested like any cell but only its in-bounds neighbors are explored.
+	 */
+	findNearest(x: number, y: number, match: (cx: number, cy: number) => boolean): Position | null {
+		const { width: W, height: H } = this;
+		const visited = new Uint8Array(W * H);
+		// Every in-bounds cell is queued at most once, plus the possibly out-of-bounds start.
+		const queueX = new Int32Array(W * H + 1);
+		const queueY = new Int32Array(W * H + 1);
+		let head = 0;
+		let tail = 0;
 
-		while (queue.length > 0) {
-			const cur = queue.shift()!;
-			if (this.grid[cur.y]?.[cur.x] === TerrainType.ROAD) return { x: cur.x, y: cur.y };
+		queueX[tail] = x;
+		queueY[tail++] = y;
+		if (x >= 0 && x < W && y >= 0 && y < H) visited[y * W + x] = 1;
 
-			for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-				const nx = cur.x + dx;
-				const ny = cur.y + dy;
-				if (nx >= 0 && nx < W && ny >= 0 && ny < this.height) {
-					const k = ny * W + nx;
-					if (!visited.has(k)) { visited.add(k); queue.push({ x: nx, y: ny }); }
-				}
+		while (head < tail) {
+			const cx = queueX[head];
+			const cy = queueY[head++];
+			if (match(cx, cy)) return { x: cx, y: cy };
+
+			for (let d = 0; d < 4; d++) {
+				const nx = cx + NEIGHBOR_DX[d];
+				const ny = cy + NEIGHBOR_DY[d];
+				if (nx < 0 || nx >= W || ny < 0 || ny >= H || visited[ny * W + nx]) continue;
+				visited[ny * W + nx] = 1;
+				queueX[tail] = nx;
+				queueY[tail++] = ny;
 			}
 		}
 		return null;
@@ -291,40 +325,25 @@ export class Grid {
 
 		this.updateActiveCells();
 
-		const needNewLayer = !this.cellsLayer ||
-			!this.cachedLayerSize ||
-			this.cachedLayerSize.w !== p.width ||
-			this.cachedLayerSize.h !== p.height;
+		const layer = this.cellsLayer.get(p);
 
-		if (needNewLayer) {
-			this.cellsLayer?.remove();
-			this.cellsLayer = p.createGraphics(p.width, p.height);
-			this.cachedLayerSize = { w: p.width, h: p.height };
-			this.layerDirty = true;
-		}
-
-		if (this.layerDirty || this.cachedActiveColor !== color) {
-			const ctx = this.cellsLayer!.drawingContext as CanvasRenderingContext2D;
-			ctx.clearRect(0, 0, this.cellsLayer!.width, this.cellsLayer!.height);
+		if (this.cellsLayer.isStale(color)) {
+			const ctx = layer.drawingContext as CanvasRenderingContext2D;
+			ctx.clearRect(0, 0, layer.width, layer.height);
 			ctx.fillStyle = color;
 			ctx.beginPath();
 
-			const maxX = Math.min(this.width  - 1, Math.ceil(p.width  / this.cellSize));
-			const maxY = Math.min(this.height - 1, Math.ceil(p.height / this.cellSize));
 			const size = this.cellSize;
 			const flat = this.activeCellsFlat;
 
 			for (let i = 0; i < this.activeCellCount * 2; i += 2) {
-				const cx = flat[i];
-				const cy = flat[i + 1];
-				if (cx <= maxX && cy <= maxY) ctx.rect(cx * size, cy * size, size, size);
+				ctx.rect(flat[i] * size, flat[i + 1] * size, size, size);
 			}
 			ctx.fill();
-			this.cachedActiveColor = color;
-			this.layerDirty = false;
+			this.cellsLayer.markDrawn(color);
 		}
 
-		p.image(this.cellsLayer!, 0, 0);
+		p.image(layer, 0, 0);
 	}
 
 	drawGrid(p: p5, color: string, cam: Camera): void {
@@ -359,21 +378,11 @@ export class Grid {
 		}
 
 		// Normal mode — cached offscreen layer
-		const needNewLayer = !this.gridLayer ||
-			!this.cachedGridLayerSize ||
-			this.cachedGridLayerSize.w !== p.width ||
-			this.cachedGridLayerSize.h !== p.height;
+		const layer = this.gridLayer.get(p);
 
-		if (needNewLayer) {
-			this.gridLayer?.remove();
-			this.gridLayer = p.createGraphics(p.width, p.height);
-			this.cachedGridLayerSize = { w: p.width, h: p.height };
-			this.gridLayerDirty = true;
-		}
-
-		if (this.gridLayerDirty || this.cachedGridColor !== color) {
-			const ctx = this.gridLayer!.drawingContext as CanvasRenderingContext2D;
-			ctx.clearRect(0, 0, this.gridLayer!.width, this.gridLayer!.height);
+		if (this.gridLayer.isStale(color)) {
+			const ctx = layer.drawingContext as CanvasRenderingContext2D;
+			ctx.clearRect(0, 0, layer.width, layer.height);
 			ctx.strokeStyle = color;
 			ctx.lineWidth = 1;
 			ctx.beginPath();
@@ -383,14 +392,18 @@ export class Grid {
 			for (let y = 0; y <= this.height; y++) { const py = y * s; ctx.moveTo(0, py); ctx.lineTo(this.width * s, py); }
 			ctx.stroke();
 
-			this.cachedGridColor = color;
-			this.gridLayerDirty = false;
+			this.gridLayer.markDrawn(color);
 		}
 
-		p.image(this.gridLayer!, 0, 0);
+		p.image(layer, 0, 0);
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	private markCellsDirty(): void {
+		this.isDirty = true;
+		this.cellsLayer.dirty = true;
+	}
 
 	private updateActiveCells(): void {
 		if (!this.isDirty) return;

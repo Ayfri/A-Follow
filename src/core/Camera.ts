@@ -10,6 +10,8 @@ export class Camera {
 	private screenW = 0;
 	private screenH = 0;
 
+	static readonly MIN_ZOOM = 0.25;
+	static readonly MAX_ZOOM = 4;
 	private static readonly ZOOM_LERP = 14; // higher = snappier
 
 	setWorldSize(pxW: number, pxH: number): void {
@@ -49,10 +51,14 @@ export class Camera {
 		};
 	}
 
-	pan(dx: number, dy: number): void {
-		this.offsetX += dx;
-		this.offsetY += dy;
+	moveTo(offsetX: number, offsetY: number): void {
+		this.offsetX = offsetX;
+		this.offsetY = offsetY;
 		this.clampOffset();
+	}
+
+	pan(dx: number, dy: number): void {
+		this.moveTo(this.offsetX + dx, this.offsetY + dy);
 	}
 
 	/** Smooth zoom: sets targetZoom and anchors around a screen point */
@@ -61,7 +67,7 @@ export class Camera {
 		const worldAnchorX = anchorSx / this.zoom + this.offsetX;
 		const worldAnchorY = anchorSy / this.zoom + this.offsetY;
 
-		this.targetZoom = Math.max(0.25, Math.min(4.0, this.targetZoom * factor));
+		this.targetZoom = Math.max(Camera.MIN_ZOOM, Math.min(Camera.MAX_ZOOM, this.targetZoom * factor));
 
 		// Instantly re-anchor so panning doesn't drift while lerping
 		const newZoom = this.targetZoom;
@@ -75,7 +81,7 @@ export class Camera {
 	setZoom(newZoom: number, anchorSx: number, anchorSy: number): void {
 		const worldAnchorX = anchorSx / this.zoom + this.offsetX;
 		const worldAnchorY = anchorSy / this.zoom + this.offsetY;
-		this.zoom = Math.max(0.25, Math.min(4.0, newZoom));
+		this.zoom = Math.max(Camera.MIN_ZOOM, Math.min(Camera.MAX_ZOOM, newZoom));
 		this.targetZoom = this.zoom;
 		this.offsetX = worldAnchorX - anchorSx / this.zoom;
 		this.offsetY = worldAnchorY - anchorSy / this.zoom;

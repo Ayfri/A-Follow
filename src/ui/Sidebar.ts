@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, createElement, Dices, type IconNode, Zap } from 'lucide';
 import type p5 from 'p5';
-import type { Camera } from '../core/Camera';
+import { Camera } from '../core/Camera';
 import type { Grid, WorldMapColors } from '../core/Grid';
 import type { Player } from '../core/Player';
 import type { ColorTheme } from '../core/Theme';
@@ -16,7 +16,15 @@ const ICON_ATTRS = { width: 14, height: 14 };
 
 type Tab = 'general' | 'map' | 'generation' | 'terrain' | 'theme';
 
-type RegenMap = (seed: number, enable: WorldGenOptions['enable'], multiplier: number) => void;
+const TAB_LABELS: Record<Tab, string> = {
+	general: 'General',
+	map: 'Map',
+	generation: 'Gen',
+	terrain: 'Terrain',
+	theme: 'Theme',
+};
+
+type RegenMap =(seed: number, enable: WorldGenOptions['enable'], multiplier: number) => void;
 
 export class Sidebar {
 	// Public state consumed by main.ts
@@ -135,31 +143,23 @@ export class Sidebar {
 
 	// ─── Tab bar ─────────────────────────────────────────────────────────────
 
-	private readonly TAB_LABELS: Record<Tab, string> = {
-		general: 'General',
-		map: 'Map',
-		generation: 'Gen',
-		terrain: 'Terrain',
-		theme: 'Theme',
-	};
-
 	private buildTabBar(): void {
-		for (const id of Object.keys(this.TAB_LABELS) as Tab[]) {
-			const btn = this.p.createDiv(this.TAB_LABELS[id]);
+		for (const id of Object.keys(TAB_LABELS) as Tab[]) {
+			const btn = this.p.createDiv(TAB_LABELS[id]);
 			btn.parent(this.tabBar);
 			btn.attribute('data-tab', id);
-			this.styleTabButton(btn, false);
+			this.styleTabButton(btn);
 			btn.elt.addEventListener('click', () => this.showTab(id));
 		}
 	}
 
-	private styleTabButton(btn: p5.Element, active: boolean): void {
+	private styleTabButton(btn: p5.Element): void {
 		btn.style('padding', '5px 10px');
 		btn.style('border-radius', '6px');
 		btn.style('cursor', 'pointer');
 		btn.style('font-size', '12px');
-		btn.style('font-weight', active ? 'bold' : 'normal');
-		btn.style('background', active ? '#2563eb' : 'rgba(255,255,255,0.07)');
+		btn.style('font-weight', 'normal');
+		btn.style('background', 'rgba(255,255,255,0.07)');
 		btn.style('color', 'white');
 		btn.style('user-select', 'none');
 		btn.style('white-space', 'nowrap');
@@ -307,8 +307,8 @@ export class Sidebar {
 
 		this.zoomSlider = new Slider(this.p, {
 			label: 'Zoom',
-			min: 25,
-			max: 400,
+			min: Camera.MIN_ZOOM * 100,
+			max: Camera.MAX_ZOOM * 100,
 			defaultValue: 100,
 			step: 5,
 			valueFormatter: (v) => `${v}%`,
