@@ -1,26 +1,10 @@
 import type p5 from 'p5';
-import { WorldMapGenerator, type WorldGenOptions } from '../generators/WorldMapGenerator';
-import { Rng } from '../utils/Rng';
-import type { Camera } from './Camera';
 import { type Terrain, TerrainType } from './TerrainType';
 
 /** Represents a 2D grid position */
 export interface Position {
 	x: number;
 	y: number;
-}
-
-export interface WorldMapColors {
-	road: string;
-	mountain: string;
-	river: string;
-	plain: string;
-	hill: string;
-	forest: string;
-	bridge: string;
-	coast: string;
-	village: string;
-	sand: string;
 }
 
 /** Offscreen p5 layer redrawn only when stale: marked dirty, drawn with another color or alpha, or the canvas size changed. */
@@ -67,46 +51,10 @@ export class Grid {
 	private static readonly GRID_FADE_FULL_PX = 10;
 	private static readonly GRID_FADE_HIDDEN_PX = 4;
 
-	// ── Active grid (points to either normalGrid or worldGrid) ──────────────
 	private grid: Terrain[][] = [];
 	public width = 0;
 	public height = 0;
 
-	// ── Normal mode (canvas-sized) ──────────────────────────────────────────
-	private normalGrid: Terrain[][] = [];
-	private normalWidth = 0;
-	private normalHeight = 0;
-
-	// ── World map mode (multiplier-sized) ──────────────────────────────────
-	private worldGrid: Terrain[][] = [];
-	private worldWidth = 0;
-	private worldHeight = 0;
-	/** One pixel per cell: a path of millions of rects draws nothing in Chrome, and this keeps the canvas at cells x 4 bytes. */
-	private worldCanvas?: HTMLCanvasElement;
-	private worldImage?: ImageData;
-	private worldPixels?: Uint32Array;
-	/** Inclusive bounds in cells of the pixels written since the last upload; empty while min > max. */
-	private worldDirtyMinX = Infinity;
-	private worldDirtyMinY = Infinity;
-	private worldDirtyMaxX = -1;
-	private worldDirtyMaxY = -1;
-
-	private worldMapMode = false;
-	private worldMapColors: WorldMapColors = {
-		road:     '#8B7355',
-		mountain: '#4A4A4A',
-		river:    '#4A90E2',
-		plain:    '#90C695',
-		hill:     '#A8D08D',
-		forest:   '#6B8F6E',
-		bridge:   '#DAA520',
-		coast:    '#F4A460',
-		village:  '#D2B48C',
-		sand:     '#F5E6D3'
-	};
-	private worldColorLUT = this.buildColorLUT();
-
-	// ── Normal mode rendering layers ────────────────────────────────────────
 	private cellSize: number;
 	private isDirty = true;
 	private activeCellsFlat: Int16Array = new Int16Array(0);
@@ -121,59 +69,15 @@ export class Grid {
 	// ── Init ──────────────────────────────────────────────────────────────────
 
 	init(canvasWidth: number, canvasHeight: number): void {
-		this.normalWidth  = Math.floor(canvasWidth  / this.cellSize);
-		this.normalHeight = Math.floor(canvasHeight / this.cellSize);
+		this.width  = Math.floor(canvasWidth  / this.cellSize);
+		this.height = Math.floor(canvasHeight / this.cellSize);
 
-		this.normalGrid = Array.from({ length: this.normalHeight }, () =>
-			new Array<Terrain>(this.normalWidth).fill(TerrainType.EMPTY)
+		this.grid = Array.from({ length: this.height }, () =>
+			new Array<Terrain>(this.width).fill(TerrainType.EMPTY)
 		);
-
-		if (!this.worldMapMode) {
-			this.grid   = this.normalGrid;
-			this.width  = this.normalWidth;
-			this.height = this.normalHeight;
-		}
 
 		this.gridLayer.dirty = true;
 		this.markCellsDirty();
-	}
-
-	// ── World map mode toggle ─────────────────────────────────────────────────
-
-	setWorldMapMode(enabled: boolean): void {
-		this.worldMapMode = enabled;
-
-		if (enabled && this.worldWidth > 0) {
-			this.grid   = this.worldGrid;
-			this.width  = this.worldWidth;
-			this.height = this.worldHeight;
-		} else if (!enabled) {
-			this.grid   = this.normalGrid;
-			this.width  = this.normalWidth;
-			this.height = this.normalHeight;
-		}
-
-		this.markCellsDirty();
-	}
-
-	isWorldMapMode(): boolean {
-		return this.worldMapMode;
-	}
-
-	hasWorldMap(): boolean {
-		return this.worldWidth > 0;
-	}
-
-	// ── Colors ────────────────────────────────────────────────────────────────
-
-	setWorldMapColors(colors: Partial<WorldMapColors>): void {
-		this.worldMapColors = { ...this.worldMapColors, ...colors };
-		this.worldColorLUT = this.buildColorLUT();
-		this.recolorWorld();
-	}
-
-	getWorldMapColors(): WorldMapColors {
-		return { ...this.worldMapColors };
 	}
 
 	// ── Cell access ───────────────────────────────────────────────────────────
@@ -187,27 +91,13 @@ export class Grid {
 		if (x >= 0 && x < this.width && y >= 0 && y < this.height) {
 			if (this.grid[y][x] !== value) {
 				this.grid[y][x] = value;
-				if (this.worldMapMode) {
-					if (this.worldPixels) {
-						this.worldPixels[y * this.worldWidth + x] = this.worldColorLUT[value];
-						this.worldDirtyMinX = Math.min(this.worldDirtyMinX, x);
-						this.worldDirtyMinY = Math.min(this.worldDirtyMinY, y);
-						this.worldDirtyMaxX = Math.max(this.worldDirtyMaxX, x);
-						this.worldDirtyMaxY = Math.max(this.worldDirtyMaxY, y);
-					}
-				} else {
-					this.markCellsDirty();
-				}
+				this.markCellsDirty();
 			}
 		}
 	}
 
 	isCellTraversable(x: number, y: number): boolean {
-		const cell = this.getCell(x, y);
-		if (this.worldMapMode) {
-			return cell === TerrainType.ROAD || cell === TerrainType.EMPTY;
-		}
-		return cell !== TerrainType.WALL && cell !== TerrainType.MOUNTAIN && cell !== TerrainType.RIVER;
+		return this.getCell(x, y) !== TerrainType.WALL;
 	}
 
 	// ── Coordinate helpers ────────────────────────────────────────────────────
@@ -217,17 +107,6 @@ export class Grid {
 			x: Math.floor(pixelX / this.cellSize),
 			y: Math.floor(pixelY / this.cellSize)
 		};
-	}
-
-	getCellFromScreen(screenX: number, screenY: number, cam: Camera): Position {
-		if (this.worldMapMode) {
-			const world = cam.screenToWorld(screenX, screenY);
-			return {
-				x: Math.floor(world.x / this.cellSize),
-				y: Math.floor(world.y / this.cellSize)
-			};
-		}
-		return this.getCellFromPixel(screenX, screenY);
 	}
 
 	getPixelFromCell(cellX: number, cellY: number): Position {
@@ -286,30 +165,6 @@ export class Grid {
 	}
 
 	/**
-	 * Generate a world map.
-	 * Returns the seed that was actually used (so the UI can display it).
-	 */
-	generateWorldMap(options: WorldGenOptions, multiplier: number, canvasWidth: number, canvasHeight: number): number {
-		const seed = options.seed !== 0 ? options.seed : Rng.randomSeed();
-
-		const baseW = Math.floor(canvasWidth / this.cellSize);
-		const baseH = Math.floor(canvasHeight / this.cellSize);
-
-		this.worldWidth  = Math.max(1, Math.floor(baseW * multiplier));
-		this.worldHeight = Math.max(1, Math.floor(baseH * multiplier));
-		this.worldMapMode = true;
-
-		const generator = new WorldMapGenerator(this.worldWidth, this.worldHeight);
-		this.worldGrid = generator.generate({ ...options, seed });
-		this.grid   = this.worldGrid;
-		this.width  = this.worldWidth;
-		this.height = this.worldHeight;
-
-		this.recolorWorld();
-		return seed;
-	}
-
-	/**
 	 * Breadth-first search for the closest cell (4-neighborhood) satisfying `match`, starting at (x, y).
 	 * An out-of-bounds start is tested like any cell but only its in-bounds neighbors are explored.
 	 */
@@ -345,12 +200,7 @@ export class Grid {
 
 	// ── Rendering ─────────────────────────────────────────────────────────────
 
-	drawActiveCells(p: p5, color: string, cam: Camera): void {
-		if (this.worldMapMode) {
-			this.drawWorldMap(p, cam);
-			return;
-		}
-
+	drawActiveCells(p: p5, color: string): void {
 		this.updateActiveCells();
 
 		const layer = this.cellsLayer.get(p);
@@ -374,41 +224,7 @@ export class Grid {
 		p.image(layer, 0, 0);
 	}
 
-	drawGrid(p: p5, color: string, cam: Camera): void {
-		if (this.worldMapMode) {
-			// Direct draw — grid lines shift with camera, no offscreen caching needed
-			const ctx = p.drawingContext as CanvasRenderingContext2D;
-			const zoom = cam.zoom;
-			const cs = this.cellSize;
-			const alpha = Grid.gridAlpha(cs * zoom);
-			if (alpha === 0) return;
-
-			const startCX = Math.floor(cam.offsetX / cs);
-			const startCY = Math.floor(cam.offsetY / cs);
-			const endCX   = Math.min(this.width,  Math.ceil((cam.offsetX + p.width  / zoom) / cs) + 1);
-			const endCY   = Math.min(this.height, Math.ceil((cam.offsetY + p.height / zoom) / cs) + 1);
-
-			ctx.save();
-			ctx.globalAlpha = alpha;
-			ctx.strokeStyle = color;
-			ctx.lineWidth = 1;
-			ctx.beginPath();
-			for (let x = startCX; x <= endCX; x++) {
-				const sx = (x * cs - cam.offsetX) * zoom;
-				ctx.moveTo(sx, 0);
-				ctx.lineTo(sx, p.height);
-			}
-			for (let y = startCY; y <= endCY; y++) {
-				const sy = (y * cs - cam.offsetY) * zoom;
-				ctx.moveTo(0, sy);
-				ctx.lineTo(p.width, sy);
-			}
-			ctx.stroke();
-			ctx.restore();
-			return;
-		}
-
-		// Normal mode — cached offscreen layer
+	drawGrid(p: p5, color: string): void {
 		const alpha = Grid.gridAlpha(this.cellSize);
 		if (alpha === 0) return;
 
@@ -475,72 +291,5 @@ export class Grid {
 			}
 		}
 		return neighbors;
-	}
-
-	/** Rewrites every world pixel from the grid and the color LUT, allocating the canvas and its pixel view when the world size changed. */
-	private recolorWorld(): void {
-		if (this.worldWidth === 0) return;
-
-		if (!this.worldCanvas || this.worldCanvas.width !== this.worldWidth || this.worldCanvas.height !== this.worldHeight) {
-			this.worldCanvas = document.createElement('canvas');
-			this.worldCanvas.width = this.worldWidth;
-			this.worldCanvas.height = this.worldHeight;
-			this.worldImage = new ImageData(this.worldWidth, this.worldHeight);
-			this.worldPixels = new Uint32Array(this.worldImage.data.buffer);
-		}
-
-		const pixels = this.worldPixels!;
-		const lut = this.worldColorLUT;
-		let i = 0;
-		for (let y = 0; y < this.worldHeight; y++) {
-			const row = this.worldGrid[y];
-			for (let x = 0; x < this.worldWidth; x++) pixels[i++] = lut[row[x]];
-		}
-		this.worldDirtyMinX = 0;
-		this.worldDirtyMinY = 0;
-		this.worldDirtyMaxX = this.worldWidth - 1;
-		this.worldDirtyMaxY = this.worldHeight - 1;
-	}
-
-	/** Indexed by Terrain. EMPTY and WALL stay 0 (transparent). */
-	private buildColorLUT(): Uint32Array {
-		const c = this.worldMapColors;
-		return Uint32Array.of(
-			0, 0,
-			Grid.packColor(c.road), Grid.packColor(c.mountain), Grid.packColor(c.river), Grid.packColor(c.plain),
-			Grid.packColor(c.hill), Grid.packColor(c.forest), Grid.packColor(c.bridge), Grid.packColor(c.coast),
-			Grid.packColor(c.village), Grid.packColor(c.sand)
-		);
-	}
-
-	/** Packs `#rrggbb` (what color inputs always give) as an opaque pixel: ImageData bytes are R, G, B, A, read little-endian as 0xAABBGGRR. */
-	private static packColor(hex: string): number {
-		const rgb = Number.parseInt(hex.slice(1), 16);
-		return (0xff << 24 | (rgb & 0xff) << 16 | (rgb >> 8 & 0xff) << 8 | rgb >> 16) >>> 0;
-	}
-
-	private drawWorldMap(p: p5, cam: Camera): void {
-		if (!this.worldCanvas || !this.worldImage) return;
-
-		if (this.worldDirtyMinX <= this.worldDirtyMaxX) {
-			const { worldDirtyMinX: x, worldDirtyMinY: y } = this;
-			this.worldCanvas.getContext('2d')!.putImageData(
-				this.worldImage, 0, 0, x, y, this.worldDirtyMaxX - x + 1, this.worldDirtyMaxY - y + 1
-			);
-			this.worldDirtyMinX = this.worldDirtyMinY = Infinity;
-			this.worldDirtyMaxX = this.worldDirtyMaxY = -1;
-		}
-
-		const ctx = p.drawingContext as CanvasRenderingContext2D;
-		const cs = this.cellSize;
-		const viewCells = 1 / (cam.zoom * cs);
-		ctx.save();
-		ctx.imageSmoothingEnabled = false;
-		ctx.drawImage(
-			this.worldCanvas,
-			cam.offsetX / cs, cam.offsetY / cs, p.width * viewCells, p.height * viewCells,
-			0, 0, p.width, p.height
-		);
-		ctx.restore();
 	}
 }

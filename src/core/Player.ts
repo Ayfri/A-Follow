@@ -1,5 +1,4 @@
 import type p5 from 'p5';
-import type { Camera } from './Camera';
 import type { Grid, Position } from './Grid';
 
 export class Player {
@@ -54,22 +53,13 @@ export class Player {
 		}
 	}
 
-	draw(p: p5, grid: Grid, playerColor: string, cam: Camera): void {
-		const worldCenter = grid.getCenterPixelFromCell(this.x, this.y);
-		let sx = worldCenter.x;
-		let sy = worldCenter.y;
-		let drawSize = grid.getCellSize();
-
-		if (grid.isWorldMapMode()) {
-			const screen = cam.worldToScreen(worldCenter.x, worldCenter.y);
-			sx = screen.x;
-			sy = screen.y;
-			drawSize *= cam.zoom;
-		}
+	draw(p: p5, grid: Grid, playerColor: string): void {
+		const center = grid.getCenterPixelFromCell(this.x, this.y);
+		const size = grid.getCellSize();
 
 		p.fill(playerColor);
 		p.noStroke();
-		p.ellipse(sx, sy, drawSize, drawSize);
+		p.ellipse(center.x, center.y, size, size);
 	}
 
 	setSpeed(speed: number): void { this.speed = speed; }

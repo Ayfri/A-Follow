@@ -1,5 +1,4 @@
 import type p5 from 'p5';
-import type { Camera } from './Camera';
 import type { Grid, Position } from './Grid';
 import { type Terrain, TerrainType } from './TerrainType';
 
@@ -11,12 +10,10 @@ export class DrawingSystem {
 	private lockedAxis: 'horizontal' | 'vertical' | null = null;
 	private isDragging = false;
 	private grid: Grid;
-	private camera: Camera;
 	private hasChangedGrid = false;
 
-	constructor(grid: Grid, camera: Camera) {
+	constructor(grid: Grid) {
 		this.grid = grid;
-		this.camera = camera;
 	}
 
 	hasGridChanged(): boolean { return this.hasChangedGrid; }
@@ -55,7 +52,7 @@ export class DrawingSystem {
 	}
 
 	private getCell(p: p5): Position {
-		return this.grid.getCellFromScreen(p.mouseX, p.mouseY, this.camera);
+		return this.grid.getCellFromPixel(p.mouseX, p.mouseY);
 	}
 
 	handleMousePressed(p: p5): void {
@@ -75,9 +72,8 @@ export class DrawingSystem {
 
 	/** Left paints, right erases, other buttons (middle, back, forward) paint nothing. */
 	private paintValue(p: p5): Terrain | null {
-		const worldMap = this.grid.isWorldMapMode();
-		if (p.mouseButton.left) return worldMap ? TerrainType.ROAD : TerrainType.WALL;
-		if (p.mouseButton.right) return worldMap ? TerrainType.PLAIN : TerrainType.EMPTY;
+		if (p.mouseButton.left) return TerrainType.WALL;
+		if (p.mouseButton.right) return TerrainType.EMPTY;
 		return null;
 	}
 
