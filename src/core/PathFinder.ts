@@ -1,3 +1,4 @@
+import type { Connectivity } from './Connectivity';
 import type { CellRect, Position, WallGrid } from './WallGrid';
 
 /** Neighbor order of the search: up, right, down, left. It decides which of several shortest paths is returned. */
@@ -17,6 +18,7 @@ interface Span {
  * A* on a bounded window of the infinite grid, on 4-neighbors with a Manhattan heuristic.
  * Open entries are ordered by F, then H, then insertion order, so equal-cost ties resolve the same way every run.
  * The typed buffers only grow and are reused across searches, so a search allocates nothing but its result.
+ * Given a `Connectivity`, a target the start can't reach inside the window is rejected before the window is copied, not by scanning it.
  */
 export class PathFinder {
 	/** Cells searched around the visible rect, so paths can bend around walls just outside the screen. */
@@ -62,6 +64,11 @@ export class PathFinder {
 	private startCell = 0;
 	private goalCell = 0;
 	private expanded = 0;
+	private readonly connectivity: Connectivity | null;
+
+	constructor(connectivity: Connectivity | null = null) {
+		this.connectivity = connectivity;
+	}
 
 	/**
 	 * Search window for a visible rect: the rect plus the margin, extended to hold both endpoints.
@@ -144,6 +151,7 @@ export class PathFinder {
 	/**
 	 * `find` as a generator that yields every `SLICE` expanded nodes, so a caller can run other work in between or drop the search.
 	 * The grid is only read before the first yield: the search then runs on its own copy of the window.
+	 * The connectivity check, when there is one, ends the generator before its first yield.
 	 */
 	*steps(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity): Generator<void, Position[] | null, undefined> {
 		if (!PathFinder.contains(window, start) || !PathFinder.contains(window, target)) return null;
@@ -164,6 +172,7 @@ export class PathFinder {
 
 		const straight = PathFinder.straight(grid, start, goal);
 		if (straight !== null) return straight;
+		if (this.connectivity !== null && !this.connectivity.mayReach(grid, window, start, goal)) return null;
 
 		if (!loaded) this.load(grid, window);
 		this.begin(window, start, goal);

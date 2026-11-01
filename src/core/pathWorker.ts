@@ -1,3 +1,4 @@
+import { Connectivity } from './Connectivity';
 import { GridSync } from './GridSync';
 import { PathFinder } from './PathFinder';
 import type { FindRequest, FindResult, WorkerRequest } from './pathMessages';
@@ -5,7 +6,7 @@ import { type Position, WallGrid } from './WallGrid';
 
 /** This module and its imports never touch the DOM or p5: they have to load in a worker. */
 const grid = new WallGrid();
-const finder = new PathFinder();
+const finder = new PathFinder(new Connectivity());
 const ping = new MessageChannel();
 /** Only the newest request is kept: an older one that hasn't started is dropped, and one that has started is abandoned at its next slice. */
 let latest: FindRequest | null = null;
