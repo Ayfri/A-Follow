@@ -56,5 +56,5 @@ COST[CellType.PINE] = 7;
 export const BLOCKED = COST.map((cost) => (cost === 0 ? 1 : 0));
 
 export const MIN_COST = 1;
-/** The weighted search's bucket ring is `2 * MAX_COST` rounded up to a power of two (32 up to MAX_COST 15), a bigger value grows it. */
-export const MAX_COST = 12;
+/** The highest cost of the table. The weighted search's bucket ring is `2 * MAX_COST` rounded up to a power of two (32 up to MAX_COST 15), a bigger value grows it. */
+export const MAX_COST = Math.max(...COST);
