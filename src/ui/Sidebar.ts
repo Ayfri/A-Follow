@@ -5,6 +5,7 @@ import type { PathPreview } from '../core/PathPreview';
 import type { Player } from '../core/Player';
 import type { ColorTheme } from '../core/Theme';
 import type { WallGrid } from '../core/WallGrid';
+import type { World } from '../core/World';
 import { Setting } from '../utils/Setting';
 import { Button } from './Button';
 import { ColorField } from './fields/ColorField';
@@ -255,10 +256,16 @@ export class Sidebar {
 		];
 	}
 
-	/** Drops every edit and switches the grid to the city of the seed field, or to the empty world when City is off. */
+	/**
+	 * Drops every edit and switches the grid to the city of the seed field, or to the empty world when City is off.
+	 * Nothing happens when the grid already holds that world: the seed field keeps changing with City off, and that must not wipe the walls.
+	 */
 	private applyWorld(): void {
 		if (!this.ready) return;
-		this.host.preview.setWorld(this.cityToggle.value ? { kind: 'city', seed: this.seedField.value } : { kind: 'empty' }, this.host.player);
+		const world: World = this.cityToggle.value ? { kind: 'city', seed: this.seedField.value } : { kind: 'empty' };
+		const current = this.host.grid.world;
+		if (current.kind === world.kind && (current.kind === 'empty' || (world.kind === 'city' && current.seed === world.seed))) return;
+		this.host.preview.setWorld(world, this.host.player);
 	}
 
 	/** Both generate buttons are disabled while a fill is pending, so a second click can't replace the first one mid-way. */
