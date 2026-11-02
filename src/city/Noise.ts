@@ -79,6 +79,19 @@ export class SampledField {
 		);
 	}
 
+	/** Sets `lowest` and `highest` to the bounds of the four lattice points around (x, y), which `at` interpolates between. */
+	boundsAt(x: number, y: number): void {
+		const { step, evaluate } = this;
+		const x0 = Math.floor(x / step) * step;
+		const y0 = Math.floor(y / step) * step;
+		const a = evaluate(x0, y0);
+		const b = evaluate(x0 + step, y0);
+		const c = evaluate(x0, y0 + step);
+		const d = evaluate(x0 + step, y0 + step);
+		this.lowest = Math.min(a, b, c, d);
+		this.highest = Math.max(a, b, c, d);
+	}
+
 	/** Writes the `size` x `size` tile at (x0, y0) into `out`, row-major, evaluating each lattice point once. */
 	fillTile(x0: number, y0: number, size: number, out: Float64Array): void {
 		this.sample(x0, y0, size);

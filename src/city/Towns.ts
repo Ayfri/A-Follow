@@ -39,6 +39,7 @@ const SHAPE_STEP = 8;
 const SHAPE_WEIGHT = 0.25;
 /** Urban stays at 0 or below once the distance passes `(1 + SHAPE_WEIGHT / 2)` radii, since the shape noise is below 1. */
 const BORDER_REACH = 1 + SHAPE_WEIGHT / 2;
+const MAX_MEMO = 4096;
 
 /**
  * Where the towns are and which cells are urban. The world is cut into regions of 512 cells with a town in 60% of them, so towns are
@@ -54,6 +55,11 @@ export class Towns {
 	private readonly shape: SampledField;
 	private readonly nearby: Town[] = [];
 	private shapeValues = new Float64Array(0);
+	/** Memo of `at`: the road layer asks for the same few regions at every tile, and each answer costs a water lookup. */
+	private readonly regions = new Map<number, Town | null>();
+	private preparedX = Number.NaN;
+	private preparedY = Number.NaN;
+	private preparedSize = Number.NaN;
 
 	constructor(seed: number, water: Water) {
 		this.seed = seed;
@@ -62,8 +68,32 @@ export class Towns {
 		this.shape = new SampledField((x, y) => shape.at(x, y), SHAPE_STEP);
 	}
 
+	/**
+	 * The towns that can have an urban cell in the tile last passed to `prepare`, sorted like `near`. Valid until the next `prepare`, and
+	 * empty or stale before the first.
+	 */
+	get present(): readonly Town[] {
+		return this.nearby;
+	}
+
+	/** Shape noise of the cells of the tile last passed to `prepare`, row-major: the fourth argument of `level` for each cell. */
+	get shapes(): Float64Array {
+		return this.shapeValues;
+	}
+
 	/** The town of region (rx, ry), or null when it has none or its center would sit in water. */
 	at(rx: number, ry: number): Town | null {
+		/** Unique for regions within 2^21 of the origin (a billion cells), far beyond the int32 range the hashes accept anyway. */
+		const key = rx * 0x400000 + ry;
+		const known = this.regions.get(key);
+		if (known !== undefined) return known;
+		const town = this.generate(rx, ry);
+		if (this.regions.size >= MAX_MEMO) this.regions.clear();
+		this.regions.set(key, town);
+		return town;
+	}
+
+	private generate(rx: number, ry: number): Town | null {
 		const { seed } = this;
 		if (unit(hash(seed, rx, ry, Salt.TOWN_PRESENT)) >= TOWN_CHANCE) return null;
 		const x = (rx << Towns.REGION_BITS) + CENTER_MARGIN + (hash(seed, rx, ry, Salt.TOWN_X) % CENTER_SPREAD);
@@ -122,21 +152,34 @@ export class Towns {
 	}
 
 	/**
-	 * Sets every urban cell of every town near the `size` x `size` tile at (x0, y0) to ground, except water: a town clears its fields and
-	 * forest and leaves the river alone.
+	 * Finds the towns that can have an urban cell in the `size` x `size` tile at (x0, y0) and the shape noise of its cells, for `present`
+	 * and `shapes`. Asking again for the same tile costs nothing: the layers of one tile share the work.
 	 */
-	clearGround(x0: number, y0: number, size: number, out: Uint8Array): void {
+	prepare(x0: number, y0: number, size: number): void {
+		if (x0 === this.preparedX && y0 === this.preparedY && size === this.preparedSize) return;
+		this.preparedX = x0;
+		this.preparedY = y0;
+		this.preparedSize = size;
 		const { nearby } = this;
 		this.near(x0, y0, size, Towns.MAX_REACH, nearby);
 		let overlapping = 0;
 		for (let i = 0; i < nearby.length; i++) if (Towns.overlaps(nearby[i], x0, y0, size)) nearby[overlapping++] = nearby[i];
+		nearby.length = overlapping;
 		if (overlapping === 0) return;
 
 		if (this.shapeValues.length < size * size) this.shapeValues = new Float64Array(size * size);
-		const { shapeValues } = this;
-		this.shape.fillTile(x0, y0, size, shapeValues);
-		for (let t = 0; t < overlapping; t++) {
-			const town = nearby[t];
+		this.shape.fillTile(x0, y0, size, this.shapeValues);
+	}
+
+	/**
+	 * Sets every urban cell of every town near the `size` x `size` tile at (x0, y0) to ground, except water: a town clears its fields and
+	 * forest and leaves the river alone.
+	 */
+	clearGround(x0: number, y0: number, size: number, out: Uint8Array): void {
+		this.prepare(x0, y0, size);
+		const { nearby: present, shapeValues } = this;
+		for (let t = 0; t < present.length; t++) {
+			const town = present[t];
 			const reach = town.radius * BORDER_REACH;
 			for (let row = Math.max(0, Math.ceil(town.y - reach) - y0); row < Math.min(size, Math.floor(town.y + reach) - y0 + 1); row++) {
 				const y = y0 + row;
@@ -149,7 +192,8 @@ export class Towns {
 		}
 	}
 
-	private static level(town: Town, x: number, y: number, shape: number): number {
+	/** `urban` for a cell whose shape noise is already known. */
+	static level(town: Town, x: number, y: number, shape: number): number {
 		const dx = x - town.x;
 		const dy = y - town.y;
 		return 1 - Math.sqrt(dx * dx + dy * dy) / town.radius + SHAPE_WEIGHT * (shape - 0.5);

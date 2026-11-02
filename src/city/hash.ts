@@ -40,4 +40,9 @@ export const Salt = {
 	TOWN_PHASE_X: 18,
 	TOWN_PHASE_Y: 19,
 	TOWN_SHAPE: 20,
+	STREET_JITTER: 21,
+	STREET_DROP_X: 22,
+	STREET_DROP_Y: 23,
+	ROAD_KEEP: 24,
+	ROAD_BEND: 25,
 } as const;

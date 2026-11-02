@@ -20,6 +20,8 @@ const SLOPE_STEP = 8;
 /** Slope bounds in height per cell. The floor keeps a river continuous where the noise is flat, the cap bounds the band that rules tiles out. */
 const SLOPE_MIN = 1e-4;
 const SLOPE_MAX = 4e-3;
+/** Height distance from the river level beyond which a river is out of reach: the half width times the steepest slope, with 1% margin. */
+const RIVER_REACH = RIVER_HALF_WIDTH * SLOPE_MAX * 1.01;
 const LAKE_PERIOD = 640;
 /** Value noise only passes this level around a lattice peak, so lakes are rare. */
 const LAKE_LEVEL = 0.9;
@@ -57,7 +59,23 @@ export class Water {
 
 	/** Same answer as the cell `fill` writes at (x, y). */
 	at(x: number, y: number): boolean {
-		return Math.abs(this.distance.at(x, y)) < RIVER_HALF_WIDTH || this.lake.at(x, y) > LAKE_LEVEL;
+		return this.lake.at(x, y) > LAKE_LEVEL || this.riverAt(x, y);
+	}
+
+	/**
+	 * The distance costs three heights per lattice point and most cells are far from any river, so the four heights around the cell rule
+	 * it out first, with the same bound `fill` uses for a tile: it never changes the answer.
+	 */
+	private riverAt(x: number, y: number): boolean {
+		const { height, distance } = this;
+		height.boundsAt(x, y);
+		if (!(height.lowest < RIVER_LEVEL + RIVER_REACH && height.highest > RIVER_LEVEL - RIVER_REACH)) return false;
+		return Math.abs(distance.at(x, y)) < RIVER_HALF_WIDTH;
+	}
+
+	/** Whether (x, y) is in a lake, rivers excluded. A cell is water in `at` when it is a lake cell or a river cell. */
+	lakeAt(x: number, y: number): boolean {
+		return this.lake.at(x, y) > LAKE_LEVEL;
 	}
 
 	/** Writes 1 for water and 0 for dry into the `size` x `size` tile at (x0, y0), row-major, and returns the number of water cells. */
@@ -70,8 +88,7 @@ export class Water {
 		 */
 		height.sample(x0, y0, size);
 		lake.sample(x0, y0, size);
-		const reach = RIVER_HALF_WIDTH * SLOPE_MAX * 1.01;
-		let rivers = height.lowest < RIVER_LEVEL + reach && height.highest > RIVER_LEVEL - reach;
+		let rivers = height.lowest < RIVER_LEVEL + RIVER_REACH && height.highest > RIVER_LEVEL - RIVER_REACH;
 		if (rivers) {
 			distance.sample(x0, y0, size);
 			rivers = distance.lowest < RIVER_HALF_WIDTH && distance.highest > -RIVER_HALF_WIDTH;
