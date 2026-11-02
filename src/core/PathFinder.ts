@@ -44,6 +44,14 @@ interface WindowStats {
 export class PathFinder {
 	/** Cells searched around the visible rect, so paths can bend around walls just outside the screen. */
 	static readonly WINDOW_MARGIN = 16;
+	/**
+	 * With an endpoint off the view, the window reaches the Manhattan distance between them divided by this around both, so a player far
+	 * off a zoomed-in view isn't searched in a thin strip between it and the view, which a river or a row of buildings cuts. City seed 1,
+	 * a 73 x 41 view 60 to 3000 cells from the player, 284 reachable targets: no room left 13.4% without a path and 60% on a costlier one,
+	 * 4 gives 1.4% and 5.3% (median window 3.6M cells), 2 gives 0.7% and 2.1% (5M). The room only applies off the view, so a zoomed-out
+	 * view with both endpoints on it keeps its window and its search time.
+	 */
+	static readonly ENDPOINT_ROOM = 2;
 	static readonly MAX_WINDOW_SIDE = 4096;
 	/**
 	 * Caps the cells of a window (2.9M at a 1680 x 925 screen with 3 px cells at 25% zoom). The window buffers take 10 bytes per cell
@@ -147,17 +155,26 @@ export class PathFinder {
 	}
 
 	/**
-	 * Search window for a visible rect: the rect plus the margin, extended to hold both endpoints.
+	 * Search window for a visible rect: the rect plus the margin, extended to hold both endpoints, with room around them when one is off the rect.
 	 * A side longer than its cap becomes a capped segment centered between the endpoints and kept inside that union;
-	 * endpoints a full cap apart on a side can't share a window. Above the area cap, the longer side shrinks to fit it.
+	 * endpoints a full cap apart on a side can't share a window. Above the area cap, the room halves first, then the longer side shrinks to fit.
 	 */
 	static window(view: CellRect, start: Position, target: Position): CellRect | null {
-		let x = PathFinder.span(view.x, view.width, start.x, target.x, PathFinder.MAX_WINDOW_SIDE);
-		let y = PathFinder.span(view.y, view.height, start.y, target.y, PathFinder.MAX_WINDOW_SIDE);
+		let room = PathFinder.contains(view, start) && PathFinder.contains(view, target)
+			? 0
+			: Math.max(PathFinder.WINDOW_MARGIN, Math.floor((Math.abs(start.x - target.x) + Math.abs(start.y - target.y)) / PathFinder.ENDPOINT_ROOM));
+		let x: Span | null;
+		let y: Span | null;
+		while (true) {
+			x = PathFinder.span(view.x, view.width, start.x, target.x, room, PathFinder.MAX_WINDOW_SIDE);
+			y = PathFinder.span(view.y, view.height, start.y, target.y, room, PathFinder.MAX_WINDOW_SIDE);
+			if (x === null || y === null || x.size * y.size <= PathFinder.MAX_WINDOW_AREA || room === 0) break;
+			room >>= 1;
+		}
 		if (x && y && x.size * y.size > PathFinder.MAX_WINDOW_AREA) {
 			/** The cap stays even, which the centering in `span` needs. */
-			if (x.size >= y.size) x = PathFinder.span(view.x, view.width, start.x, target.x, Math.floor(PathFinder.MAX_WINDOW_AREA / y.size) & ~1);
-			else y = PathFinder.span(view.y, view.height, start.y, target.y, Math.floor(PathFinder.MAX_WINDOW_AREA / x.size) & ~1);
+			if (x.size >= y.size) x = PathFinder.span(view.x, view.width, start.x, target.x, room, Math.floor(PathFinder.MAX_WINDOW_AREA / y.size) & ~1);
+			else y = PathFinder.span(view.y, view.height, start.y, target.y, room, Math.floor(PathFinder.MAX_WINDOW_AREA / x.size) & ~1);
 		}
 		return x && y ? { x: x.origin, y: y.origin, width: x.size, height: y.size } : null;
 	}
@@ -173,9 +190,9 @@ export class PathFinder {
 	}
 
 	/** `cap` must be even. */
-	private static span(viewOrigin: number, viewSize: number, a: number, b: number, cap: number): Span | null {
-		const lo = Math.min(viewOrigin - PathFinder.WINDOW_MARGIN, a, b);
-		const hi = Math.max(viewOrigin + viewSize + PathFinder.WINDOW_MARGIN, a + 1, b + 1);
+	private static span(viewOrigin: number, viewSize: number, a: number, b: number, room: number, cap: number): Span | null {
+		const lo = Math.min(viewOrigin - PathFinder.WINDOW_MARGIN, Math.min(a, b) - room);
+		const hi = Math.max(viewOrigin + viewSize + PathFinder.WINDOW_MARGIN, Math.max(a, b) + 1 + room);
 		if (hi - lo <= cap) return { origin: lo, size: hi - lo };
 
 		const min = Math.min(a, b);

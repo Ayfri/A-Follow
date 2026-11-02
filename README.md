@@ -110,7 +110,7 @@ Each layer is a pure function of the seed, painted over the previous ones, and a
 
 ### Window and budget
 
-The path search runs on a window made of the visible area grown by 16 cells on every side, extended to contain the player and the target. A window side is capped at 4096 cells and its area at 2^23 cells (above that the longer side shrinks to fit). A player and a target too far apart to share a window have no path. The cells of the window are copied once into a flat buffer, so the search loop never touches the chunk map.
+The path search runs on a window made of the visible area grown by 16 cells on every side, extended to contain the player and the target. When one of them is off screen (the player after a zoom in, for example), the window also reaches half their Manhattan distance around both, so the search isn't squeezed into a thin strip that a river or a row of buildings cuts. A window side is capped at 4096 cells and its area at 2^23 cells (above that the room around the endpoints halves first, then the longer side shrinks to fit). A player and a target too far apart to share a window have no path. The cells of the window are copied once into a flat buffer, so the search loop never touches the chunk map.
 
 The search has no node budget on the full window, so it always gives the exact answer, and it runs off the main thread:
 
