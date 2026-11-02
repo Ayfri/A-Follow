@@ -103,10 +103,9 @@ Each layer is a pure function of the seed, painted over the previous ones, and a
 1. **Countryside**: forests from value noise, and farmland zones cut into hedged field parcels with the odd farmstead.
 2. **Water**: rivers (contour lines of a warped noise, so they never end) and lakes.
 3. **Towns**: one per 512 x 512 region with probability 0.6, as villages, towns or cities of growing radius, with an irregular outline. Their ground replaces fields and forests.
-4. **Blocks**: the space between street lines is split into lots with buildings, parks and plazas, by zone (downtown, inner, suburbs). Buildings make 3.2 to 3.6% of the cells.
-5. **Streets**: a jittered grid per town with an avenue every 4th line, some suburban segments dropped.
-6. **Roads**: highways between towns, country roads for the small ones, with bridges where they cross water. The largest connected component holds 98.7 to 99.3% of the road cells.
-7. **Ribbon houses**: houses along the country roads near the towns they link.
+4. **Fabric**: a town of tier 1 and up is cut into Voronoi districts (170 to 260 cells wide) whose boundaries are avenues. Each district has its own jittered street grid, turned off the axis of the town by up to 25 degrees, with an avenue every 4th line (every 6th in organic towns, 5th in sprawl). A street is the set of cells a straight line touches, so a turned street is a 4-connected staircase. The blocks between the streets are split into lots with buildings, parks and plazas, by zone (downtown, inner, suburbs, and a bigger-lot center for a metropolis), with a gap of at least 2 cells between buildings on a turned grid. The town center is a plaza.
+5. **Roads**: highways between towns, country roads for the small ones, with bridges where they cross water. The largest connected component holds 96 to 99.6% of the road cells.
+6. **Ribbon houses**: houses along the country roads near the towns they link.
 
 ### Window and budget
 

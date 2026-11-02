@@ -1,4 +1,3 @@
-import { CellType } from '../core/CellType';
 import { DESERT_MOISTURE, DESERT_TEMP } from './Countryside';
 import { hash, Salt, unit } from './hash';
 import { SampledField, ValueNoise } from './Noise';
@@ -30,10 +29,6 @@ export interface Town {
 	/** 1, or 2.2 to 3.0 for a linear town: it is that many times longer along its axis than the circle of its radius, and as many times narrower across. */
 	stretch: number;
 	walled: boolean;
-	/** Cells between two streets of the grid, and the offset of the first street. */
-	block: number;
-	phaseX: number;
-	phaseY: number;
 }
 
 /** Share of the regions that hold a town. */
@@ -44,9 +39,8 @@ const CENTER_SPREAD = 320;
 /** Share of the towns that are villages, then of those that are villages or towns: the rest are cities. */
 const VILLAGE_SHARE = 0.55;
 const TOWN_SHARE = 0.85;
-/** Radius range in cells, block range in cells, per tier. */
+/** Radius range in cells, per tier. */
 const RADIUS: readonly (readonly [number, number])[] = [[48, 96], [120, 200], [220, 360], [600, 950]];
-const BLOCK: readonly (readonly [number, number])[] = [[20, 32], [20, 32], [18, 26], [18, 26]];
 /** The metropolis tier has its own lattice of 4096 cells, with a metropolis in `METRO_CHANCE` of its squares, placed in the middle half of the square. */
 const METRO_BITS = 12;
 const METRO_CHANCE = 0.3;
@@ -300,8 +294,6 @@ export class Towns {
 		}
 
 		const walled = kind === TownKind.ORGANIC ? tier >= 1 : (kind === TownKind.PLANNED || kind === TownKind.RADIAL) && tier >= 2 && unit(hash(seed, rx, ry, Salt.TOWN_WALLED)) < WALLED_SHARE;
-		const [minBlock, maxBlock] = BLOCK[tier];
-		const block = minBlock + (hash(seed, rx, ry, Salt.TOWN_BLOCK) % (maxBlock - minBlock + 1));
 		return {
 			id: hash(seed, rx, ry, Salt.TOWN_ID),
 			rx,
@@ -315,9 +307,6 @@ export class Towns {
 			axisY,
 			stretch: kind === TownKind.LINEAR ? STRETCH_MIN + STRETCH_SPREAD * unit(hash(seed, rx, ry, Salt.TOWN_STRETCH)) : 1,
 			walled,
-			block,
-			phaseX: hash(seed, rx, ry, Salt.TOWN_PHASE_X) % block,
-			phaseY: hash(seed, rx, ry, Salt.TOWN_PHASE_Y) % block,
 		};
 	}
 
@@ -371,27 +360,6 @@ export class Towns {
 
 		if (this.shapeValues.length < size * size) this.shapeValues = new Float64Array(size * size);
 		this.shape.fillTile(x0, y0, size, this.shapeValues);
-	}
-
-	/**
-	 * Sets every urban cell of every town near the `size` x `size` tile at (x0, y0) to ground, except water and rock: a town clears its
-	 * fields, forest, sand and hills, and leaves the river and the mountain rock alone.
-	 */
-	clearGround(x0: number, y0: number, size: number, out: Uint8Array): void {
-		this.prepare(x0, y0, size);
-		const { nearby: present, shapeValues } = this;
-		for (let t = 0; t < present.length; t++) {
-			const town = present[t];
-			const reach = Towns.reach(town);
-			for (let row = Math.max(0, Math.ceil(town.y - reach) - y0); row < Math.min(size, Math.floor(town.y + reach) - y0 + 1); row++) {
-				const y = y0 + row;
-				const half = Math.floor(Math.sqrt(reach * reach - (y - town.y) * (y - town.y)));
-				for (let col = Math.max(0, town.x - half - x0); col < Math.min(size, town.x + half - x0 + 1); col++) {
-					const i = row * size + col;
-					if (out[i] !== CellType.WATER && out[i] !== CellType.ROCK && Towns.level(town, x0 + col, y, shapeValues[i]) > 0) out[i] = CellType.GROUND;
-				}
-			}
-		}
 	}
 
 	/**
