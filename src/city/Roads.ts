@@ -88,7 +88,7 @@ export class Roads {
 	/** Replaces the content of `out` with the edges that start at the town of region (rx, ry): none without a town, up to two with one. */
 	edgesFrom(rx: number, ry: number, out: Edge[]): void {
 		out.length = 0;
-		const key = rx * 0x400000 + ry;
+		const key = Towns.regionKey(rx, ry);
 		let edges = this.regions.get(key);
 		if (edges === undefined) {
 			edges = this.link(rx, ry);

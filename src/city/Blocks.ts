@@ -44,8 +44,9 @@ const FRINGE_LEVEL = 0.12;
 /** A block whose center is this far outside the town has no lot with a cell inside it: the slope of the level is under 0.04 per cell. */
 const BLOCK_SKIP_LEVEL = -0.4;
 /**
- * Lots and blocks whose center is below this level check each cell against the border of the town, since the border can cross them:
- * it moves by under 0.04 of level per cell, and a lot is at most 16 cells across.
+ * Lots whose center is below this level check each cell against the border of the town, since the border can cross them: it moves by under
+ * 0.04 of level per cell, and a lot is at most 16 cells across (11.3 from its center to a corner, 0.45 of level). The bound doesn't hold for
+ * a park or a plaza, which takes a whole block of up to ~35 cells, so those always check every cell.
  */
 const CHECK_LEVEL = 0.6;
 
@@ -65,7 +66,10 @@ export class Blocks {
 	private town: Town | null = null;
 	private zone: Zone = SUBURB;
 	private blockId = 0;
-	/** Whether several towns are near the tile, so every cell has to be checked for its owner. */
+	/**
+	 * Whether several towns are near the tile, so every cell has to be checked for its owner. A lone town owns all its cells, so this only
+	 * skips an `owns` loop that would say yes: a cell's result is the same whatever other towns the tile sees.
+	 */
 	private shared = false;
 
 	constructor(towns: Towns, streets: Streets) {
@@ -119,9 +123,9 @@ export class Blocks {
 		const roll = unit(id);
 		const parkShare = downtown ? DOWNTOWN_PARK : zone === INNER ? INNER_PARK : SUBURB_PARK;
 		const plazaShare = downtown ? DOWNTOWN_PLAZA : 0;
-		if (center) this.fill(x, y, w, h, CellType.PLAZA, level < CHECK_LEVEL, id);
-		else if (roll < parkShare) this.fill(x, y, w, h, CellType.PARK, level < CHECK_LEVEL, id);
-		else if (roll < parkShare + plazaShare) this.fill(x, y, w, h, CellType.PLAZA, level < CHECK_LEVEL, id);
+		if (center) this.fill(x, y, w, h, CellType.PLAZA, true, id);
+		else if (roll < parkShare) this.fill(x, y, w, h, CellType.PARK, true, id);
+		else if (roll < parkShare + plazaShare) this.fill(x, y, w, h, CellType.PLAZA, true, id);
 		else {
 			this.zone = zone;
 			this.blockId = id;

@@ -93,10 +93,14 @@ export class Towns {
 		return this.shapeValues;
 	}
 
+	/** Unique number key of a region: cells are int32, so a region coordinate is in [-2^22, 2^22) and its biased value fits 23 bits (the key is below 2^46, exact). */
+	static regionKey(rx: number, ry: number): number {
+		return (rx + 2 ** 22) * 2 ** 23 + (ry + 2 ** 22);
+	}
+
 	/** The town of region (rx, ry), or null when it has none or its center would sit in water. */
 	at(rx: number, ry: number): Town | null {
-		/** Unique for regions within 2^21 of the origin (a billion cells), far beyond the int32 range the hashes accept anyway. */
-		const key = rx * 0x400000 + ry;
+		const key = Towns.regionKey(rx, ry);
 		const known = this.regions.get(key);
 		if (known !== undefined) return known;
 		const town = this.generate(rx, ry);
