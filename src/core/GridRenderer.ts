@@ -1,11 +1,13 @@
 import type { Camera } from './Camera';
-import { CHUNK_BITS, CHUNK_SIZE, WallGrid } from './WallGrid';
+import { CHUNK_BITS, CHUNK_SIZE, type Chunk, WallGrid } from './WallGrid';
 
 /** A chunk rendered to its own canvas, one pixel per cell, valid while `version` matches the chunk's. */
 interface CachedChunk {
 	canvas: OffscreenCanvas;
 	context: OffscreenCanvasRenderingContext2D;
 	version: number;
+	/** The chunk the picture was packed from: a different object at the same coordinates is a different chunk. */
+	chunk: Chunk | null;
 	cx: number;
 	cy: number;
 }
@@ -74,6 +76,12 @@ export class GridRenderer {
 					entry = GridRenderer.createEntry(cx, cy);
 					this.cache.set(key, entry);
 				}
+				/** A chunk recreated at the same coordinates (a Clear, then a redraw) must not show the picture of the one it replaced. */
+				if (entry.chunk !== chunk) {
+					entry.context.clearRect(0, 0, CHUNK_SIZE, CHUNK_SIZE);
+					entry.chunk = chunk;
+					entry.version = -1;
+				}
 				if (entry.version !== chunk.version && (!repacked || performance.now() < deadline)) {
 					const { pixels, packed } = this;
 					for (let i = 0; i < pixels.length; i++) pixels[i] = chunk.cells[i] * packed;
@@ -131,7 +139,7 @@ export class GridRenderer {
 		const canvas = new OffscreenCanvas(CHUNK_SIZE, CHUNK_SIZE);
 		const context = canvas.getContext('2d');
 		if (context === null) throw new Error('2D context unavailable on OffscreenCanvas');
-		return { canvas, context, version: -1, cx, cy };
+		return { canvas, context, version: -1, chunk: null, cx, cy };
 	}
 
 	private static gridAlpha(cellPx: number): number {
