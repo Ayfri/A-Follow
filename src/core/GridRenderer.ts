@@ -32,8 +32,8 @@ export class GridRenderer {
 	private static readonly REPACK_BUDGET_MS = 4;
 	/**
 	 * Time a frame may spend generating the visible chunks a generating world hasn't made yet, and at least one is generated per frame. A
-	 * chunk of countryside takes ~0.5 ms, so a first view of ~130 chunks appears over a few frames instead of freezing one; a chunk not
-	 * generated yet shows the background.
+	 * chunk takes 0.7 to 0.9 ms on average with every layer, so a first view of ~130 chunks fills in ~25 frames instead of freezing one; a
+	 * chunk not generated yet shows the background.
 	 */
 	private static readonly GENERATE_BUDGET_MS = 4;
 
