@@ -1,7 +1,8 @@
+import { BLOCKED, CellType, COST, MAX_COST, TYPE_COUNT } from './CellType';
 import type { Connectivity } from './Connectivity';
 import { CHUNK_BITS, CHUNK_SIZE, type CellRect, type Position, type WallGrid } from './WallGrid';
 
-export type SearchKind = 'astar' | 'bidirectional' | 'jps4';
+export type SearchKind = 'astar' | 'bidirectional' | 'jps4' | 'weighted';
 
 /** Neighbor order of the search: up, right, down, left. It decides which of several shortest paths is returned. */
 const DX = [0, 1, 0, -1];
@@ -16,11 +17,24 @@ interface Span {
 	size: number;
 }
 
+/** What `stats` reads off the chunks overlapping a window. */
+interface WindowStats {
+	/** Blocked cells over the cells of those chunks. */
+	density: number;
+	/** One bit per passable type that may appear in the window. */
+	passable: number;
+	/** Cheapest entry cost among those types: the heuristic scale and the cost of a straight path. */
+	minCost: number;
+}
+
 /**
- * Shortest paths on a bounded window of the infinite grid, on 4-neighbors: A* with a Manhattan heuristic on almost open windows,
- * JPS4 on most others, and a bidirectional breadth-first search on dense ones (`choose`). All return a shortest path, but not always the same one.
+ * Shortest paths on a bounded window of the infinite grid, on 4-neighbors. A window with a single passable type costs the same per cell,
+ * so the shortest path is the one with the fewest cells: A* with a Manhattan heuristic on almost open windows, JPS4 on most others, and a
+ * bidirectional breadth-first search on dense ones (`choose`). A window with several passable types has a cost per cell (`COST`, paid to
+ * enter a cell, the start is free) and gets a weighted A* over a bucket queue (Dial). All return a cheapest path, but not always the same one.
  * Ties resolve the same way every run: neighbors are taken up, right, down, left. A* orders open entries by F, then H, then insertion
- * order. The breadth-first search is FIFO, expands the smaller frontier first (forward when equal) and keeps the first discovery of a cell.
+ * order. The weighted search takes the entry pushed last among those with the smallest F (LIFO buckets). The breadth-first search is FIFO,
+ * expands the smaller frontier first (forward when equal) and keeps the first discovery of a cell.
  * JPS4 (arXiv 2501.14816) is A* over jump points with a horizontal-first canonical ordering: a vertical run jumps to the next cell with a
  * forced neighbor (or the goal), a horizontal move is a single step, and the edge cost is the run length.
  * The typed buffers only grow and are reused across searches, so a search allocates nothing but its result.
@@ -34,7 +48,8 @@ export class PathFinder {
 	/**
 	 * Caps the cells of a window (2.9M at a 1680 x 925 screen with 3 px cells at 25% zoom). The window buffers take 10 bytes per cell
 	 * (84 MB at the cap), and the open entries add 16 bytes each (more while their arrays double). A search that scans a 2.9M window
-	 * (unreachable target) raised the process rss by ~155 MB, so a scan of the largest window can take ~450 MB.
+	 * (unreachable target) raised the process rss by ~155 MB, so a scan of the largest window can take ~450 MB. The open entries of a
+	 * weighted search take 8 bytes each (the cell and the next entry of its bucket), but it opens more of them.
 	 */
 	static readonly MAX_WINDOW_AREA = 1 << 23;
 	/**
@@ -51,8 +66,9 @@ export class PathFinder {
 	/** A near window bigger than this is not searched: copying it would cost more than the attempt can save. */
 	static readonly NEAR_AREA = 1 << 17;
 	/**
-	 * Wall densities (see `density`) that pick the search of a query without a given kind: A* below `JPS_DENSITY`, JPS4 from there up to
-	 * `BFS_DENSITY`, the bidirectional search from there. Full-window queries 200+ apart on random grids of 2240 x 1265 and 2048 x 2048,
+	 * Wall densities (see `stats`) that pick the search of a query without a given kind on a window with one passable type: A* below
+	 * `JPS_DENSITY`, JPS4 from there up to `BFS_DENSITY`, the bidirectional search from there. A window with several passable types takes the
+	 * weighted search whatever its density. Full-window queries 200+ apart on random grids of 2240 x 1265 and 2048 x 2048,
 	 * medians in Node.js (V8), in ms, 12 queries per pass:
 	 *  - open: A* 5 / JPS4 70 (it scans lines to the edge), 1 to 2%: a tie, 5%: 94 / 73 and 112 / 75, 10%: 118 / 86 and 584 / 363,
 	 *    20%: 182 / 139 and 445 / 289, 30%: 352 / 242 and 554 / 395, 35%: bidirectional 489 / JPS4 383 and 514 / 370;
@@ -68,8 +84,16 @@ export class PathFinder {
 	 */
 	static readonly JPS_DENSITY = 0.03;
 	static readonly BFS_DENSITY = 0.36;
+	/**
+	 * Ring size of the weighted search's bucket queue, the smallest power of two above `2 * MAX_COST`. The heuristic is consistent and its
+	 * scale is at most `MAX_COST`, so every open entry has an F within `MAX_COST + scale` of the bucket being drained: the F values in
+	 * the ring span less than its size, and no two of them share a slot.
+	 */
+	private static readonly BUCKETS = 1 << (32 - Math.clz32(2 * MAX_COST));
 
-	private walls = new Uint8Array(0);
+	/** Window cells: 0 = open and nonzero = blocked for the unit searches, the cost to enter (0 = blocked) for the weighted one (`costLayout`). */
+	private cells = new Uint8Array(0);
+	private costLayout = false;
 	/** Best cost per cell, only meaningful where `state` is at least `base`. The nearest-open-cell search borrows it as its queue. */
 	private g = new Int32Array(0);
 	/**
@@ -87,6 +111,14 @@ export class PathFinder {
 	private heap = new Int32Array(0);
 	private entryCount = 0;
 	private heapSize = 0;
+	/** Weighted search: the open entries are LIFO lists per F modulo `BUCKETS`, `bucketHead` holds the first entry (-1 = empty) and `entryNext` the next one. */
+	private entryNext = new Int32Array(0);
+	private readonly bucketHead = new Int32Array(PathFinder.BUCKETS);
+	private openCount = 0;
+	/** F of the bucket being drained, which never decreases. */
+	private fCurrent = 0;
+	/** Heuristic scale: the cheapest cost in the window. */
+	private hScale = 1;
 	/** State of the running search that `run` resumes. */
 	private searchWindow: CellRect = { x: 0, y: 0, width: 0, height: 0 };
 	private startCell = 0;
@@ -163,8 +195,9 @@ export class PathFinder {
 	/**
 	 * Exact answer for a target close to `start`, from a search on a small window on the calling thread:
 	 * `[]` when the target is a wall and `snap` is off (no path), null when only the full search can tell.
-	 * `window` is the full search window and holds both endpoints. A path of at most `NEAR_MARGIN` * 2 cells over the Manhattan distance
-	 * can't be beaten by one leaving the small window, which has to go more than `NEAR_MARGIN` out and back.
+	 * `window` is the full search window and holds both endpoints. A path leaving the small window goes more than `NEAR_MARGIN` out and
+	 * back, so it has more than the Manhattan distance + 2 * `NEAR_MARGIN` cells, each costing at least the cheapest cost of the full window.
+	 * A path found inside that costs no more than that can't be beaten by one leaving the small window.
 	 */
 	findNear(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean): Position[] | null {
 		if (grid.isWall(target.x, target.y)) {
@@ -180,9 +213,17 @@ export class PathFinder {
 		if ((right - left) * (bottom - top) > PathFinder.NEAR_AREA) return null;
 
 		const near = { x: left, y: top, width: right - left, height: bottom - top };
-		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET, 'astar');
+		const passable = PathFinder.stats(grid, near).passable;
+		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET, (passable & (passable - 1)) === 0 ? 'astar' : 'weighted');
 		const distance = Math.abs(start.x - target.x) + Math.abs(start.y - target.y);
-		return path !== null && path.length - 1 <= distance + 2 * margin ? path : null;
+		return path !== null && PathFinder.pathCost(grid, path) <= PathFinder.stats(grid, window).minCost * (distance + 2 * margin) ? path : null;
+	}
+
+	/** Cost of a path: the cost to enter each cell after the first. */
+	static pathCost(grid: WallGrid, path: readonly Position[]): number {
+		let cost = 0;
+		for (let i = 1; i < path.length; i++) cost += COST[grid.typeAt(path[i].x, path[i].y)];
+		return cost;
 	}
 
 	/**
@@ -193,27 +234,28 @@ export class PathFinder {
 	*steps(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity, kind?: SearchKind): Generator<void, Position[] | null, undefined> {
 		if (!PathFinder.contains(window, start) || !PathFinder.contains(window, target)) return null;
 
+		const wallTarget = grid.isWall(target.x, target.y);
+		if (wallTarget && !snap && (start.x !== target.x || start.y !== target.y)) return null;
+
+		const stats = PathFinder.stats(grid, window);
+		const searchKind = kind ?? PathFinder.choose(grid, window, stats);
 		let goal = target;
 		let loaded = false;
-		if (grid.isWall(target.x, target.y)) {
-			if (!snap) {
-				if (start.x !== target.x || start.y !== target.y) return null;
-			} else {
-				this.load(grid, window);
-				loaded = true;
-				const nearest = this.nearestOpen(window, target);
-				if (nearest === null) return null;
-				goal = nearest;
-			}
+		if (wallTarget && snap) {
+			this.load(grid, window, searchKind, stats);
+			loaded = true;
+			const nearest = this.nearestOpen(window, target);
+			if (nearest === null) return null;
+			goal = nearest;
 		}
 
 		if (start.x === goal.x && start.y === goal.y) return [{ ...start }];
-		const straight = PathFinder.straight(grid, start, goal);
+		const straight = PathFinder.straight(grid, start, goal, stats.minCost);
 		if (straight !== null) return straight;
 		if (this.connectivity !== null && !this.connectivity.mayReach(grid, window, start, goal)) return null;
 
-		if (!loaded) this.load(grid, window);
-		this.begin(window, start, goal, kind ?? PathFinder.choose(grid, window));
+		if (!loaded) this.load(grid, window, searchKind, stats);
+		this.begin(window, start, goal, searchKind, stats.minCost);
 		while (true) {
 			const result = this.run(budget);
 			if (result !== undefined) return result;
@@ -225,29 +267,37 @@ export class PathFinder {
 		return p.x >= rect.x && p.x < rect.x + rect.width && p.y >= rect.y && p.y < rect.y + rect.height;
 	}
 
-	/** Horizontal or vertical path without a wall, checked on the grid itself so no window copy is needed. */
-	private static straight(grid: WallGrid, start: Position, goal: Position): Position[] | null {
+	/**
+	 * Horizontal or vertical path whose cells all cost `minCost`, checked on the grid itself so no window copy is needed. Every path has at
+	 * least the Manhattan length in cells and each costs at least `minCost`, so it is a cheapest path (and the only one of its length).
+	 */
+	private static straight(grid: WallGrid, start: Position, goal: Position, minCost: number): Position[] | null {
 		if (start.x !== goal.x && start.y !== goal.y) return null;
 
 		const dx = Math.sign(goal.x - start.x);
 		const dy = Math.sign(goal.y - start.y);
 		const length = Math.abs(goal.x - start.x) + Math.abs(goal.y - start.y);
-		for (let i = 0; i <= length; i++) {
-			if (grid.isWall(start.x + dx * i, start.y + dy * i)) return null;
+		for (let i = 1; i <= length; i++) {
+			if (COST[grid.typeAt(start.x + dx * i, start.y + dy * i)] !== minCost) return null;
 		}
 		return Array.from({ length: length + 1 }, (_, i) => ({ x: start.x + dx * i, y: start.y + dy * i }));
 	}
 
-	/** Copies the window's walls once per search, so the hot loop never touches the chunk map. */
-	private load(grid: WallGrid, window: CellRect): void {
+	/**
+	 * Copies the window once per search, so the hot loop never touches the chunk map: the cost of each cell for the weighted search, and for
+	 * the others a blocked mask. The raw types are that mask when ground is the only passable type (nonzero is then blocked).
+	 */
+	private load(grid: WallGrid, window: CellRect, kind: SearchKind, stats: WindowStats): void {
 		const area = window.width * window.height;
 		if (this.g.length < area) {
-			this.walls = new Uint8Array(area);
+			this.cells = new Uint8Array(area);
 			this.g = new Int32Array(area);
 			this.state = new Uint32Array(area);
 			this.from = new Uint8Array(area);
 		}
-		grid.copyWalls(window, this.walls);
+		this.costLayout = kind === 'weighted';
+		const onlyGround = (stats.passable & ~(1 << CellType.GROUND)) === 0;
+		grid.copyWalls(window, this.cells, this.costLayout ? COST : onlyGround ? null : BLOCKED);
 	}
 
 	/** Starts a search: everything stamped by an earlier one reads as untouched. */
@@ -263,7 +313,7 @@ export class PathFinder {
 	/** Closest open cell to `origin` by BFS inside the window, the origin itself first. */
 	private nearestOpen(window: CellRect, origin: Position): Position | null {
 		const { x: ox, y: oy, width: W, height: H } = window;
-		const { walls, state, g: queue } = this;
+		const { cells, costLayout, state, g: queue } = this;
 		const base = this.nextBase();
 
 		const first = (origin.y - oy) * W + origin.x - ox;
@@ -276,7 +326,7 @@ export class PathFinder {
 			const cell = queue[head++];
 			const x = cell % W;
 			const y = (cell - x) / W;
-			if (walls[cell] === 0) return { x: x + ox, y: y + oy };
+			if ((cells[cell] !== 0) === costLayout) return { x: x + ox, y: y + oy };
 
 			for (let d = 0; d < 4; d++) {
 				const nx = x + NEAREST_DX[d];
@@ -291,26 +341,46 @@ export class PathFinder {
 		return null;
 	}
 
-	/** Walls over cells of the chunks that overlap the window: approximate at the edges, where a chunk reaches outside the window. */
-	private static density(grid: WallGrid, window: CellRect): number {
+	/**
+	 * Sums what the chunks overlapping the window hold: approximate at the edges, where a chunk reaches outside the window. That makes
+	 * `passable` a superset and `minCost` a lower bound of the window's own, which keeps a uniform test and the heuristic scale safe.
+	 * A missing chunk is all ground.
+	 */
+	private static stats(grid: WallGrid, window: CellRect): WindowStats {
 		const firstX = window.x >> CHUNK_BITS;
 		const firstY = window.y >> CHUNK_BITS;
 		const lastX = (window.x + window.width - 1) >> CHUNK_BITS;
 		const lastY = (window.y + window.height - 1) >> CHUNK_BITS;
 		let walls = 0;
+		let passable = 0;
 		for (let cy = firstY; cy <= lastY; cy++) {
-			for (let cx = firstX; cx <= lastX; cx++) walls += grid.chunkAt(cx, cy)?.walls ?? 0;
+			for (let cx = firstX; cx <= lastX; cx++) {
+				const chunk = grid.chunkAt(cx, cy);
+				if (chunk === undefined) {
+					passable |= 1 << CellType.GROUND;
+					continue;
+				}
+				walls += chunk.walls;
+				for (let type = 0; type < TYPE_COUNT; type++) {
+					if (chunk.counts[type] !== 0 && BLOCKED[type] === 0) passable |= 1 << type;
+				}
+			}
 		}
-		return walls / ((lastX - firstX + 1) * (lastY - firstY + 1) * CHUNK_SIZE * CHUNK_SIZE);
+
+		let minCost = MAX_COST;
+		for (let type = 0; type < TYPE_COUNT; type++) {
+			if ((passable >> type) & 1) minCost = Math.min(minCost, COST[type]);
+		}
+		return { density: walls / ((lastX - firstX + 1) * (lastY - firstY + 1) * CHUNK_SIZE * CHUNK_SIZE), passable, minCost };
 	}
 
-	private static choose(grid: WallGrid, window: CellRect): SearchKind {
-		const density = PathFinder.density(grid, window);
+	private static choose(grid: WallGrid, window: CellRect, { density, passable } = PathFinder.stats(grid, window)): SearchKind {
+		if ((passable & (passable - 1)) !== 0) return 'weighted';
 		return density >= PathFinder.BFS_DENSITY ? 'bidirectional' : density >= PathFinder.JPS_DENSITY ? 'jps4' : 'astar';
 	}
 
-	/** Sets up the search state for `run`. */
-	private begin(window: CellRect, start: Position, goal: Position, kind: SearchKind): void {
+	/** Sets up the search state for `run`. `minCost` is the heuristic scale of the weighted search. */
+	private begin(window: CellRect, start: Position, goal: Position, kind: SearchKind, minCost: number): void {
 		const { x: ox, y: oy, width: W, height: H } = window;
 		this.searchWindow = window;
 		this.kind = kind;
@@ -322,6 +392,16 @@ export class PathFinder {
 		this.startCell = (start.y - oy) * W + start.x - ox;
 		this.goalCell = (goal.y - oy) * W + goal.x - ox;
 		this.state[this.startCell] = this.base;
+		if (kind === 'weighted') {
+			this.g[this.startCell] = 0;
+			this.from[this.startCell] = 4;
+			this.hScale = minCost;
+			this.bucketHead.fill(-1);
+			this.openCount = 0;
+			this.fCurrent = minCost * (Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y));
+			this.pushBucket(this.startCell, this.fCurrent);
+			return;
+		}
 		if (kind !== 'bidirectional') {
 			this.g[this.startCell] = 0;
 			this.from[this.startCell] = 4;
@@ -343,14 +423,19 @@ export class PathFinder {
 	}
 
 	private run(budget: number): Position[] | null | undefined {
-		return this.kind === 'astar' ? this.runAStar(budget) : this.kind === 'jps4' ? this.runJps(budget) : this.runBidirectional(budget);
+		switch (this.kind) {
+			case 'astar': return this.runAStar(budget);
+			case 'jps4': return this.runJps(budget);
+			case 'weighted': return this.runWeighted(budget);
+			case 'bidirectional': return this.runBidirectional(budget);
+		}
 	}
 
 	/** JPS4 (arXiv 2501.14816): horizontal-first canonical ordering, vertical runs jump to forced neighbors, horizontal moves are single steps. */
 	private runJps(budget: number): Position[] | null | undefined {
 		const window = this.searchWindow;
 		const { width: W, height: H } = window;
-		const { walls, g, state, from, base, startCell, goalCell } = this;
+		const { cells, g, state, from, base, startCell, goalCell } = this;
 		const closed = base + 1;
 		const goalX = goalCell % W;
 		const goalY = (goalCell - goalX) / W;
@@ -372,15 +457,15 @@ export class PathFinder {
 				let steps = 1;
 				if ((d & 1) === 1) {
 					const nx = x + DX[d];
-					if (nx < 0 || nx >= W || walls[cell + DX[d]] !== 0) continue;
+					if (nx < 0 || nx >= W || cells[cell + DX[d]] !== 0) continue;
 					/** A horizontal move after a vertical one is only taken when the wall behind forces it (the parent's row there is closed). */
-					if (arrival === 4 || (arrival & 1) === 1 ? arrival === 4 || d === arrival : walls[cell + DX[d] - DY[arrival] * W] !== 0) target = cell + DX[d];
+					if (arrival === 4 || (arrival & 1) === 1 ? arrival === 4 || d === arrival : cells[cell + DX[d] - DY[arrival] * W] !== 0) target = cell + DX[d];
 				} else if (arrival === 4 || (arrival & 1) === 1 || d === arrival) {
 					const dy = DY[d];
 					for (let jy = y + dy; jy >= 0 && jy < H; jy += dy, steps++) {
 						const at = jy * W + x;
-						if (walls[at] !== 0) break;
-						if (at === goalCell || (x > 0 && walls[at - 1] === 0 && walls[at - 1 - dy * W] !== 0) || (x < W - 1 && walls[at + 1] === 0 && walls[at + 1 - dy * W] !== 0)) { target = at; break; }
+						if (cells[at] !== 0) break;
+						if (at === goalCell || (x > 0 && cells[at - 1] === 0 && cells[at - 1 - dy * W] !== 0) || (x < W - 1 && cells[at + 1] === 0 && cells[at + 1 - dy * W] !== 0)) { target = at; break; }
 					}
 					scanned += steps;
 				}
@@ -442,7 +527,7 @@ export class PathFinder {
 	private runBidirectional(budget: number): Position[] | null | undefined {
 		const window = this.searchWindow;
 		const { width: W, height: H } = window;
-		const { walls, g: queue, state, from, base } = this;
+		const { cells, g: queue, state, from, base } = this;
 		const sliceEnd = this.expanded + PathFinder.SLICE;
 		const last = W * H - 1;
 		let { expanded, head, tail, levelEnd, backHead, backTail, backLevelEnd, forwardTurn } = this;
@@ -466,7 +551,7 @@ export class PathFinder {
 				const ny = y + DY[d];
 				if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
 				const n = ny * W + nx;
-				if (walls[n] !== 0) continue;
+				if (cells[n] !== 0) continue;
 
 				const seen = state[n];
 				if (seen === other) return forwardTurn ? this.rebuildMeeting(cell, n) : this.rebuildMeeting(n, cell);
@@ -521,7 +606,7 @@ export class PathFinder {
 	private runAStar(budget: number): Position[] | null | undefined {
 		const window = this.searchWindow;
 		const { width: W, height: H } = window;
-		const { walls, g, state, from, base, startCell, goalCell } = this;
+		const { cells, g, state, from, base, startCell, goalCell } = this;
 		const closed = base + 1;
 		const goalX = goalCell % W;
 		const goalY = (goalCell - goalX) / W;
@@ -545,13 +630,74 @@ export class PathFinder {
 				if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
 				const n = ny * W + nx;
 				const seen = state[n];
-				if (seen === closed || walls[n] !== 0 || (seen === base && next >= g[n])) continue;
+				if (seen === closed || cells[n] !== 0 || (seen === base && next >= g[n])) continue;
 
 				g[n] = next;
 				state[n] = base;
 				from[n] = d;
 				const h = Math.abs(nx - goalX) + Math.abs(ny - goalY);
 				this.push(n, next + h, h);
+			}
+
+			if (expanded === sliceEnd) {
+				this.expanded = expanded;
+				return undefined;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * A* over a bucket queue (Dial) with costs from `cells` and the heuristic `hScale` x Manhattan distance, which is consistent: it drops
+	 * by at most `hScale` per step and a step costs at least `hScale`. So F never decreases along the expansion order, an entry is pushed
+	 * at F >= `fCurrent` (and at most `MAX_COST + hScale` past it, see `BUCKETS`), and a cell popped for the first time has its final cost.
+	 * Entries are never removed: a cell reached again with a lower cost gets a new entry at a lower F, and the old one is skipped once
+	 * the cell is closed. Within a bucket the last pushed entry goes first, which is deterministic and favors the deeper cell on equal F.
+	 */
+	private runWeighted(budget: number): Position[] | null | undefined {
+		const window = this.searchWindow;
+		const { width: W, height: H } = window;
+		const { cells, g, state, from, base, startCell, goalCell, hScale, bucketHead } = this;
+		const closed = base + 1;
+		const goalX = goalCell % W;
+		const goalY = (goalCell - goalX) / W;
+		const sliceEnd = this.expanded + PathFinder.SLICE;
+		let expanded = this.expanded;
+
+		while (this.openCount > 0) {
+			const slot = this.fCurrent & (PathFinder.BUCKETS - 1);
+			const id = bucketHead[slot];
+			if (id < 0) {
+				this.fCurrent++;
+				continue;
+			}
+			bucketHead[slot] = this.entryNext[id];
+			this.openCount--;
+
+			const cell = this.entryCell[id];
+			if (state[cell] === closed) continue;
+			if (cell === goalCell) return this.rebuild(window, startCell, goalCell);
+			if (++expanded > budget) return null;
+
+			state[cell] = closed;
+			const x = cell % W;
+			const y = (cell - x) / W;
+			const cost = g[cell];
+
+			for (let d = 0; d < 4; d++) {
+				const nx = x + DX[d];
+				const ny = y + DY[d];
+				if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+				const n = ny * W + nx;
+				const step = cells[n];
+				const seen = state[n];
+				const next = cost + step;
+				if (seen === closed || step === 0 || (seen === base && next >= g[n])) continue;
+
+				g[n] = next;
+				state[n] = base;
+				from[n] = d;
+				this.pushBucket(n, next + hScale * (Math.abs(nx - goalX) + Math.abs(ny - goalY)));
 			}
 
 			if (expanded === sliceEnd) {
@@ -623,16 +769,34 @@ export class PathFinder {
 		return top;
 	}
 
+	/** Opens an entry for `cell` at the head of the bucket of `f`. */
+	private pushBucket(cell: number, f: number): void {
+		if (this.entryCount === this.entryNext.length) {
+			const size = Math.max(1024, this.entryNext.length * 2);
+			this.entryCell = PathFinder.grown(this.entryCell, size);
+			this.entryNext = PathFinder.grown(this.entryNext, size);
+		}
+		const id = this.entryCount++;
+		const slot = f & (PathFinder.BUCKETS - 1);
+		this.entryCell[id] = cell;
+		this.entryNext[id] = this.bucketHead[slot];
+		this.bucketHead[slot] = id;
+		this.openCount++;
+	}
+
 	private growEntries(): void {
 		const size = Math.max(1024, this.entryF.length * 2);
-		const grow = (old: Int32Array<ArrayBuffer>): Int32Array<ArrayBuffer> => {
-			const bigger = new Int32Array(size);
-			bigger.set(old);
-			return bigger;
-		};
-		this.entryF = grow(this.entryF);
-		this.entryH = grow(this.entryH);
-		this.entryCell = grow(this.entryCell);
-		this.heap = grow(this.heap);
+		this.entryF = PathFinder.grown(this.entryF, size);
+		this.entryH = PathFinder.grown(this.entryH, size);
+		this.entryCell = PathFinder.grown(this.entryCell, size);
+		this.heap = PathFinder.grown(this.heap, size);
+	}
+
+	/** The array itself when it already holds `size` entries: the weighted search grows `entryCell` on its own, ahead of the A* arrays. */
+	private static grown(old: Int32Array<ArrayBuffer>, size: number): Int32Array<ArrayBuffer> {
+		if (old.length >= size) return old;
+		const bigger = new Int32Array(size);
+		bigger.set(old);
+		return bigger;
 	}
 }
