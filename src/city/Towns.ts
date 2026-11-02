@@ -33,13 +33,24 @@ const TOWN_SHARE = 0.9;
 /** Radius range in cells, block range in cells, per tier. */
 const RADIUS: readonly (readonly [number, number])[] = [[48, 80], [110, 170], [200, 280]];
 const BLOCK: readonly (readonly [number, number])[] = [[20, 32], [20, 32], [18, 26]];
-const SHAPE_PERIOD = 128;
+/**
+ * The outline is two octaves of noise: the coarse one (period 128) gives lobes and bays, the fine one (period 48) breaks the border up into
+ * streets-long bumps. A single octave read as a smooth round blob.
+ */
+const SHAPE_COARSE_PERIOD = 128;
+const SHAPE_FINE_PERIOD = 48;
+const SHAPE_COARSE_WEIGHT = 0.6;
 const SHAPE_STEP = 8;
-/** How much the shape noise pushes the border in and out, as a share of the radius. */
-const SHAPE_WEIGHT = 0.25;
+/** How much the shape noise pushes the border in and out, as a share of the radius: the border of a town of tier 1 or 2 is 0.46 radii farther out in its farthest direction than in its closest (median of 3 seeds). */
+const SHAPE_WEIGHT = 0.8;
 /** Urban stays at 0 or below once the distance passes `(1 + SHAPE_WEIGHT / 2)` radii, since the shape noise is below 1. */
 const BORDER_REACH = 1 + SHAPE_WEIGHT / 2;
 const MAX_MEMO = 4096;
+
+/** Where a town of tier 1 and up is downtown, and keeps its whole grid. */
+export const DOWNTOWN_LEVEL = 0.55;
+/** Below this level a town thins out into suburbs: street segments drop out, lots stay empty more often. The same level is the inner ring of a town. */
+export const INNER_LEVEL = 0.3;
 
 /**
  * Where the towns are and which cells are urban. The world is cut into regions of 512 cells with a town in 60% of them, so towns are
@@ -48,7 +59,7 @@ const MAX_MEMO = 4096;
 export class Towns {
 	static readonly REGION_BITS = 9;
 	/** Farthest a town reaches from its center: the largest radius times `BORDER_REACH`, rounded up. */
-	static readonly MAX_REACH = 350;
+	static readonly MAX_REACH = 392;
 
 	private readonly seed: number;
 	private readonly water: Water;
@@ -64,8 +75,9 @@ export class Towns {
 	constructor(seed: number, water: Water) {
 		this.seed = seed;
 		this.water = water;
-		const shape = new ValueNoise(seed, Salt.TOWN_SHAPE, SHAPE_PERIOD);
-		this.shape = new SampledField((x, y) => shape.at(x, y), SHAPE_STEP);
+		const coarse = new ValueNoise(seed, Salt.TOWN_SHAPE, SHAPE_COARSE_PERIOD);
+		const fine = new ValueNoise(seed, Salt.TOWN_SHAPE_FINE, SHAPE_FINE_PERIOD);
+		this.shape = new SampledField((x, y) => SHAPE_COARSE_WEIGHT * coarse.at(x, y) + (1 - SHAPE_COARSE_WEIGHT) * fine.at(x, y), SHAPE_STEP);
 	}
 
 	/**
@@ -180,7 +192,7 @@ export class Towns {
 		const { nearby: present, shapeValues } = this;
 		for (let t = 0; t < present.length; t++) {
 			const town = present[t];
-			const reach = town.radius * BORDER_REACH;
+			const reach = Towns.reach(town);
 			for (let row = Math.max(0, Math.ceil(town.y - reach) - y0); row < Math.min(size, Math.floor(town.y + reach) - y0 + 1); row++) {
 				const y = y0 + row;
 				const half = Math.floor(Math.sqrt(reach * reach - (y - town.y) * (y - town.y)));
@@ -192,6 +204,22 @@ export class Towns {
 		}
 	}
 
+	/**
+	 * Whether `town` owns the cell: it is the town the cell is deepest in among the towns of the tile last passed to `prepare`, and ties go
+	 * to the higher id. `level` and `shape` are the town's level at the cell and the shape noise there. Where towns overlap, the layers that
+	 * ask paint one town per cell, so two grids never mix whatever order they paint in.
+	 */
+	owns(town: Town, x: number, y: number, level: number, shape: number): boolean {
+		const { nearby } = this;
+		for (let o = 0; o < nearby.length; o++) {
+			const other = nearby[o];
+			if (other === town) continue;
+			const otherLevel = Towns.level(other, x, y, shape);
+			if (otherLevel > level || (otherLevel === level && other.id >= town.id)) return false;
+		}
+		return true;
+	}
+
 	/** `urban` for a cell whose shape noise is already known. */
 	static level(town: Town, x: number, y: number, shape: number): number {
 		const dx = x - town.x;
@@ -199,9 +227,14 @@ export class Towns {
 		return 1 - Math.sqrt(dx * dx + dy * dy) / town.radius + SHAPE_WEIGHT * (shape - 0.5);
 	}
 
+	/** Distance from the center beyond which no cell of the town is urban. */
+	static reach(town: Town): number {
+		return town.radius * BORDER_REACH;
+	}
+
 	/** Whether the town can have an urban cell inside the tile. */
 	private static overlaps(town: Town, x0: number, y0: number, size: number): boolean {
-		const reach = town.radius * BORDER_REACH;
+		const reach = Towns.reach(town);
 		return town.x + reach >= x0 && town.x - reach < x0 + size && town.y + reach >= y0 && town.y - reach < y0 + size;
 	}
 

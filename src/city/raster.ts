@@ -1,4 +1,10 @@
 /**
+ * Offset on the minor axis, from the start, of the cell at index `i` along the major axis of a line `major` x `minor` cells long. Rounds to
+ * the nearest cell, halves up. Integers only, so no float rounding decides a cell.
+ */
+export const minorOffset = (i: number, major: number, minor: number): number => (major === 0 ? 0 : Math.floor((2 * i * minor + major) / (2 * major)));
+
+/**
  * Calls `paint(i)` with the index in a `size` x `size` tile at (tileX, tileY) of every cell of the line from (x0, y0) to (x1, y1), `width`
  * cells wide across its minor axis. Both end cells are painted and the cells are 4-connected.
  *
@@ -43,8 +49,7 @@ export const rasterize = (
 			if (v >= 0 && v < size) paint(wide ? v * size + u : u * size + v);
 		}
 	};
-	/** Rounds to the nearest cell, halves up. Integers only, so no float rounding decides a cell. */
-	const offset = (i: number): number => (major === 0 ? 0 : Math.floor((2 * i * minor + major) / (2 * major)));
+	const offset = (i: number): number => minorOffset(i, major, minor);
 
 	for (let i = from; i <= to; i++) {
 		const at = offset(i);

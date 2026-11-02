@@ -57,10 +57,16 @@ const SCAN_MARGIN = MAX_BEND + 20;
  * An edge only depends on the towns of the regions it crosses, so a tile finds the roads that touch it without any global state.
  */
 export class Roads {
+	/** How far past a road `near` still reports it: the farthest a house of the ribbon along a country road stands from it. */
+	static readonly NEAR = 12;
+
 	private readonly towns: Towns;
 	private readonly water: Water;
 	private readonly regions = new Map<number, readonly Edge[]>();
 	private readonly touching: Edge[] = [];
+	private scannedX = Number.NaN;
+	private scannedY = Number.NaN;
+	private scannedSize = Number.NaN;
 	private readonly fromRegion: Edge[] = [];
 	private target: Uint8Array = new Uint8Array(0);
 	/** Water mask of the tile being painted. */
@@ -92,10 +98,17 @@ export class Roads {
 		for (let i = 0; i < edges.length; i++) out.push(edges[i]);
 	}
 
-	/** Paints the roads that touch the `size` x `size` tile at (x0, y0): country roads first, then highways, so a highway wins at a crossing. */
-	paint(x0: number, y0: number, size: number, out: Uint8Array, mask: Uint8Array): void {
-		const bits = Towns.REGION_BITS;
+	/**
+	 * The roads that come within `Roads.NEAR` cells of the `size` x `size` tile at (x0, y0). The roads and the ribbon houses of one tile share
+	 * the scan: asking again for the same tile costs nothing.
+	 */
+	near(x0: number, y0: number, size: number): readonly Edge[] {
 		const { touching } = this;
+		if (x0 === this.scannedX && y0 === this.scannedY && size === this.scannedSize) return touching;
+		this.scannedX = x0;
+		this.scannedY = y0;
+		this.scannedSize = size;
+		const bits = Towns.REGION_BITS;
 		touching.length = 0;
 		const edges = this.fromRegion;
 		for (let ry = ((y0 - SCAN_MARGIN) >> bits) - LINK_REGIONS; ry <= (y0 + size + SCAN_MARGIN) >> bits; ry++) {
@@ -103,10 +116,16 @@ export class Roads {
 				this.edgesFrom(rx, ry, edges);
 				for (let e = 0; e < edges.length; e++) {
 					const edge = edges[e];
-					if (edge.maxX >= x0 && edge.minX < x0 + size && edge.maxY >= y0 && edge.minY < y0 + size) touching.push(edge);
+					if (edge.maxX + Roads.NEAR >= x0 && edge.minX - Roads.NEAR < x0 + size && edge.maxY + Roads.NEAR >= y0 && edge.minY - Roads.NEAR < y0 + size) touching.push(edge);
 				}
 			}
 		}
+		return touching;
+	}
+
+	/** Paints the roads that touch the `size` x `size` tile at (x0, y0): country roads first, then highways, so a highway wins at a crossing. */
+	paint(x0: number, y0: number, size: number, out: Uint8Array, mask: Uint8Array): void {
+		const touching = this.near(x0, y0, size);
 		if (touching.length === 0) return;
 
 		this.target = out;

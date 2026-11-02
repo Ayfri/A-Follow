@@ -10,8 +10,12 @@ const FARM_LEVEL = 0.45;
 const PARCEL_WIDTH = 36;
 const PARCEL_HEIGHT = 24;
 const FIELD_SHARE = 0.6;
+/** A farmstead is a 5 x 4 building in a corner of a field parcel: 6% of them, so a farm zone shows a few buildings and not a village. */
+const FARMSTEAD_SHARE = 0.06;
+const FARMSTEAD_WIDTH = 5;
+const FARMSTEAD_HEIGHT = 4;
 
-/** Forests, and farmland zones cut into hedged field parcels; ground everywhere else. */
+/** Forests, and farmland zones cut into hedged field parcels with the odd farmstead; ground everywhere else. */
 export class Countryside {
 	private readonly seed: number;
 	private readonly forest: SampledField;
@@ -45,6 +49,9 @@ export class Countryside {
 			const offset = hash(seed, parcelRow, 0, Salt.PARCEL_ROW) % PARCEL_WIDTH;
 			let parcelCol = Number.NaN;
 			let isField = false;
+			/** Corner of the parcel, in cells from its hedge, that the farmstead covers: -1 without one. */
+			let farmU = -1;
+			let farmV = -1;
 
 			for (let col = 0; col < size; col++) {
 				const i = row * size + col;
@@ -60,9 +67,17 @@ export class Countryside {
 				if (column !== parcelCol) {
 					parcelCol = column;
 					isField = unit(hash(seed, column, parcelRow, Salt.PARCEL)) < FIELD_SHARE;
+					farmU = -1;
+					if (isField && unit(hash(seed, column, parcelRow, Salt.FARMSTEAD)) < FARMSTEAD_SHARE) {
+						const corner = hash(seed, column, parcelRow, Salt.FARM_CORNER);
+						farmU = (corner & 1) === 0 ? 1 : PARCEL_WIDTH - 1 - FARMSTEAD_WIDTH;
+						farmV = (corner & 2) === 0 ? 1 : PARCEL_HEIGHT - 1 - FARMSTEAD_HEIGHT;
+					}
 				}
 				const u = x - column * PARCEL_WIDTH;
-				if (isField && u >= 1 && u <= PARCEL_WIDTH - 2) out[i] = CellType.FIELD;
+				if (isField && u >= 1 && u <= PARCEL_WIDTH - 2) {
+					out[i] = farmU >= 0 && u >= farmU && u < farmU + FARMSTEAD_WIDTH && v >= farmV && v < farmV + FARMSTEAD_HEIGHT ? CellType.BUILDING : CellType.FIELD;
+				}
 			}
 		}
 	}

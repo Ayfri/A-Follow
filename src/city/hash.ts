@@ -45,4 +45,13 @@ export const Salt = {
 	STREET_DROP_Y: 23,
 	ROAD_KEEP: 24,
 	ROAD_BEND: 25,
+	TOWN_SHAPE_FINE: 26,
+	BLOCK: 27,
+	SPLIT: 28,
+	LOT: 29,
+	TREE: 30,
+	FARMSTEAD: 31,
+	FARM_CORNER: 32,
+	RIBBON: 33,
+	RIBBON_SIZE: 34,
 } as const;
