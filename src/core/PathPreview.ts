@@ -90,7 +90,10 @@ export class PathPreview {
 		this.arrived = null;
 		this.cancelGeneration();
 		this.grid.setWorld(world);
-		const { x, y } = this.grid.nearestPassable(player.getPosition(), PathPreview.PLACE_RADIUS) ?? player.getPosition();
+		/** The sea can be wider than the radius, so the player may be left in open water: the origin is land in every seed (see `Relief`). */
+		const { x, y } = this.grid.nearestPassable(player.getPosition(), PathPreview.PLACE_RADIUS)
+			?? this.grid.nearestPassable({ x: 0, y: 0 }, PathPreview.PLACE_RADIUS)
+			?? player.getPosition();
 		player.place(x, y);
 	}
 
