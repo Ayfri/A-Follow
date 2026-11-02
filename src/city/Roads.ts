@@ -70,13 +70,13 @@ export class Roads {
 	private scannedSize = Number.NaN;
 	private readonly fromRegion: Edge[] = [];
 	private target: Uint8Array = new Uint8Array(0);
-	/** Water mask of the tile being painted. */
+	/** Mask of the tile being painted: 0 dry, 1 river, 2 sea or lake, 3 rock. */
 	private mask: Uint8Array = new Uint8Array(0);
 	private tileX = 0;
 	private tileY = 0;
 	private tileSize = 0;
 	private roadType: number = CellType.AVENUE;
-	/** Bound once: the rasterizer calls it for every cell, with no allocation per call. */
+	/** Bound once: the rasterizer calls it for every cell, with no allocation per call. A road bridges water and cuts through rock (a mountain pass). */
 	private readonly stamp = (i: number): void => {
 		const wet = this.mask[i];
 		this.target[i] = wet === 1 || wet === 2 ? CellType.BRIDGE : this.roadType;

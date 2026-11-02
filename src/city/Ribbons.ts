@@ -1,4 +1,4 @@
-import { CellType } from '../core/CellType';
+import { CellType, TYPE_COUNT } from '../core/CellType';
 import { hash, Salt, unit } from './hash';
 import { minorOffset } from './raster';
 import { type Edge, Roads } from './Roads';
@@ -19,13 +19,16 @@ const MAX_GAP = 3;
  */
 const MAX_CHANCE = 0.95;
 const FADE_LEVEL = 0.6;
+/** The cells a house may stand on: open ground and farmland, never marsh, rock, snow, water or a road. */
+const BUILDABLE = new Uint8Array(TYPE_COUNT);
+for (const type of [CellType.GROUND, CellType.FIELD, CellType.FOREST, CellType.MEADOW, CellType.HILL, CellType.PINE, CellType.ORCHARD, CellType.SAND]) BUILDABLE[type] = 1;
 
 /**
  * Houses along the country roads near the towns they link: ribbon development. A road is cut into plots of `PLOT` cells; each plot has a
  * hashed chance of a house on each side, falling with the distance to the border of the closest of its two towns, so the houses thin out
- * along the road and a town reaches into the countryside. A house depends on its road and its plot only, and paints the cells that are
- * ground, field or forest, so a tile paints the cells of the same house as a bigger tile. Run it after every other layer: a house never
- * covers a road, a street or water.
+ * along the road and a town reaches into the countryside. A house depends on its road and its plot only, and paints the cells it may
+ * stand on (`BUILDABLE`), so a tile paints the cells of the same house as a bigger tile. Run it after every other layer: a house never
+ * covers a road, a street, water or rock.
  */
 export class Ribbons {
 	private readonly roads: Roads;
@@ -112,8 +115,7 @@ export class Ribbons {
 				for (let y = Math.max(top, tileY); y <= Math.min(bottom, tileY + size - 1); y++) {
 					for (let x = Math.max(left, tileX); x <= Math.min(right, tileX + size - 1); x++) {
 						const i = (y - tileY) * size + x - tileX;
-						const type = out[i];
-						if (type === CellType.GROUND || type === CellType.FIELD || type === CellType.FOREST) out[i] = CellType.BUILDING;
+						if (BUILDABLE[out[i]] === 1) out[i] = CellType.BUILDING;
 					}
 				}
 			}

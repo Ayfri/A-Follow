@@ -14,7 +14,8 @@ const EDGE_DROP_SHARE = 0.5;
 
 /**
  * The street grid of every town: straight streets and avenues in both directions, only where the town is urban. Streets stop at the
- * water, avenues bridge a river and stop at the sea and at a lake: a bridge over them would be hundreds of cells long.
+ * water and the mountain rock (mask code 3), avenues bridge a river and stop at the sea, at a lake and at rock: a bridge over a lake or a
+ * strait would be hundreds of cells long.
  */
 export class Streets {
 	private readonly towns: Towns;
@@ -42,7 +43,7 @@ export class Streets {
 		return k;
 	}
 
-	/** Paints the streets, then the avenues, of every town near the `size` x `size` tile at (x0, y0); `mask` is the water mask of `Water.fill`. */
+	/** Paints the streets, then the avenues, of every town near the `size` x `size` tile at (x0, y0); `mask` is the water mask of `Water.fill` with 3 on rock. */
 	paint(x0: number, y0: number, size: number, out: Uint8Array, mask: Uint8Array): void {
 		const { towns } = this;
 		towns.prepare(x0, y0, size);

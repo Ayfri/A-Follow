@@ -93,6 +93,11 @@ export class Relief {
 		return this.highT0 - LAPSE * (this.lowE - 0.5);
 	}
 
+	/** Lower bound of the temperature of every cell of the prepared tile. */
+	get lowestTemperature(): number {
+		return this.lowT0 - LAPSE * (this.highE - 0.5);
+	}
+
 	/** Samples the lattices under the `size` x `size` tile at (x0, y0) and sets the bounds. Asking again for the same tile costs nothing. */
 	prepare(x0: number, y0: number, size: number): void {
 		if (x0 === this.preparedX && y0 === this.preparedY && size === this.preparedSize) return;

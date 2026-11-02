@@ -1,6 +1,7 @@
 import { CellType } from '../core/CellType';
 import { hash, Salt, unit } from './hash';
 import { SampledField, ValueNoise } from './Noise';
+import { type Relief, TOWN_MAX_ELEVATION } from './Relief';
 import type { Water } from './Water';
 
 export type Tier = 0 | 1 | 2;
@@ -63,6 +64,7 @@ export class Towns {
 
 	private readonly seed: number;
 	private readonly water: Water;
+	private readonly relief: Relief;
 	private readonly shape: SampledField;
 	private readonly nearby: Town[] = [];
 	private shapeValues = new Float64Array(0);
@@ -72,9 +74,10 @@ export class Towns {
 	private preparedY = Number.NaN;
 	private preparedSize = Number.NaN;
 
-	constructor(seed: number, water: Water) {
+	constructor(seed: number, water: Water, relief: Relief) {
 		this.seed = seed;
 		this.water = water;
+		this.relief = relief;
 		const coarse = new ValueNoise(seed, Salt.TOWN_SHAPE, SHAPE_COARSE_PERIOD);
 		const fine = new ValueNoise(seed, Salt.TOWN_SHAPE_FINE, SHAPE_FINE_PERIOD);
 		this.shape = new SampledField((x, y) => SHAPE_COARSE_WEIGHT * coarse.at(x, y) + (1 - SHAPE_COARSE_WEIGHT) * fine.at(x, y), SHAPE_STEP);
@@ -98,7 +101,7 @@ export class Towns {
 		return (rx + 2 ** 22) * 2 ** 23 + (ry + 2 ** 22);
 	}
 
-	/** The town of region (rx, ry), or null when it has none or its center would sit in water. */
+	/** The town of region (rx, ry), or null when it has none or its center would sit in water or too high up the mountains. */
 	at(rx: number, ry: number): Town | null {
 		const key = Towns.regionKey(rx, ry);
 		const known = this.regions.get(key);
@@ -114,7 +117,7 @@ export class Towns {
 		if (unit(hash(seed, rx, ry, Salt.TOWN_PRESENT)) >= TOWN_CHANCE) return null;
 		const x = (rx << Towns.REGION_BITS) + CENTER_MARGIN + (hash(seed, rx, ry, Salt.TOWN_X) % CENTER_SPREAD);
 		const y = (ry << Towns.REGION_BITS) + CENTER_MARGIN + (hash(seed, rx, ry, Salt.TOWN_Y) % CENTER_SPREAD);
-		if (this.water.at(x, y)) return null;
+		if (this.water.at(x, y) || this.relief.elevationAt(x, y) >= TOWN_MAX_ELEVATION) return null;
 
 		const share = unit(hash(seed, rx, ry, Salt.TOWN_TIER));
 		const tier: Tier = share < VILLAGE_SHARE ? 0 : share < TOWN_SHARE ? 1 : 2;
@@ -188,8 +191,8 @@ export class Towns {
 	}
 
 	/**
-	 * Sets every urban cell of every town near the `size` x `size` tile at (x0, y0) to ground, except water: a town clears its fields and
-	 * forest and leaves the river alone.
+	 * Sets every urban cell of every town near the `size` x `size` tile at (x0, y0) to ground, except water and rock: a town clears its
+	 * fields, forest, sand and hills, and leaves the river and the mountain rock alone.
 	 */
 	clearGround(x0: number, y0: number, size: number, out: Uint8Array): void {
 		this.prepare(x0, y0, size);
@@ -202,7 +205,7 @@ export class Towns {
 				const half = Math.floor(Math.sqrt(reach * reach - (y - town.y) * (y - town.y)));
 				for (let col = Math.max(0, town.x - half - x0); col < Math.min(size, town.x + half - x0 + 1); col++) {
 					const i = row * size + col;
-					if (out[i] !== CellType.WATER && Towns.level(town, x0 + col, y, shapeValues[i]) > 0) out[i] = CellType.GROUND;
+					if (out[i] !== CellType.WATER && out[i] !== CellType.ROCK && Towns.level(town, x0 + col, y, shapeValues[i]) > 0) out[i] = CellType.GROUND;
 				}
 			}
 		}

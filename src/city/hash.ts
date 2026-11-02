@@ -24,7 +24,6 @@ export const Salt = {
 	FOREST_FINE: 2,
 	FARM_ZONE: 3,
 	PARCEL_ROW: 4,
-	PARCEL: 5,
 	WARP_X: 6,
 	WARP_Y: 7,
 	RIVER_COARSE: 8,
@@ -62,4 +61,9 @@ export const Salt = {
 	MOISTURE_2: 40,
 	TEMPERATURE_1: 41,
 	TEMPERATURE_2: 42,
+	ROCK_COARSE: 43,
+	ROCK_FINE: 44,
+	MARSH_PATCH: 45,
+	MEADOW: 46,
+	PARCEL_KIND: 47,
 } as const;
