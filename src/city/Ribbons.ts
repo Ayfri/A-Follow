@@ -54,7 +54,8 @@ export class Ribbons {
 	}
 
 	private static within(town: Town, x0: number, y0: number, size: number): boolean {
-		const reach = Towns.reach(town) + FADE_LEVEL * town.radius + Roads.NEAR;
+		/** The fade is measured in the stretched distance of a linear town, so it is as long as the reach along the axis. */
+		const reach = Towns.reach(town) + FADE_LEVEL * town.radius * Math.sqrt(town.stretch) + Roads.NEAR;
 		return town.x + reach >= x0 && town.x - reach < x0 + size && town.y + reach >= y0 && town.y - reach < y0 + size;
 	}
 

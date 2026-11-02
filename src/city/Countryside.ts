@@ -31,8 +31,9 @@ const FARMSTEAD_HEIGHT = 4;
 const MEADOW_LEVEL = 0.7;
 const HILL_MEADOW_LEVEL = 0.6;
 const SCRUB_LEVEL = 0.72;
-const DESERT_TEMP = 0.6;
-const DESERT_MOISTURE = 0.36;
+/** Desert is warmer than `DESERT_TEMP` and drier than `DESERT_MOISTURE`; the towns read the same limits to keep out of it. */
+export const DESERT_TEMP = 0.6;
+export const DESERT_MOISTURE = 0.36;
 const MARSH_MOISTURE = 0.64;
 const MARSH_PATCH = 0.45;
 /** Lowland forest is pine below this temperature, broadleaf above it. */

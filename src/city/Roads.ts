@@ -1,6 +1,7 @@
 import { CellType } from '../core/CellType';
 import { hash, Salt, unit } from './hash';
 import { rasterize } from './raster';
+import { MOUNTAIN_LEVEL, type Relief } from './Relief';
 import { type Town, Towns } from './Towns';
 import type { Water } from './Water';
 
@@ -21,6 +22,8 @@ export interface Edge {
 
 const HIGHWAY_WIDTH = 3;
 const COUNTRY_WIDTH = 2;
+/** A highway with a metropolis at one end is a motorway. */
+const MOTORWAY_WIDTH = 4;
 /**
  * Highways are always kept and country roads mostly: with links dropped at random, up to one town in ten ended up cut off from the network
  * (measured on 3 seeds over 8192 x 8192 cells).
@@ -29,15 +32,20 @@ const HIGHWAY_KEEP = 1;
 const COUNTRY_KEEP = 0.9;
 /** The middle of the road is pushed sideways by up to half this share of the distance between the towns: roads wander instead of being ruled. */
 const BEND = 0.24;
-/** Detours tried, as a share of the distance, when the first curve puts the road on water for too long. */
-const DETOURS: readonly number[] = [0, 0.1, -0.1, 0.2, -0.2];
+/** Detours tried, as a share of the distance, when the first curve puts the road on water or across the mountains for too long. */
+const DETOURS: readonly number[] = [0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3];
 /** The middle of the road never moves farther than this from the line between the towns, which bounds how far a road leaves its regions. */
 const MAX_BEND = 300;
 /** Length of a straight leg of the curve: short enough that two legs turn by a few degrees, which no longer shows as a kink. */
 const LEG = 64;
-/** A town links to the first town found within this many regions east of it, and the same to the south. */
-const LINK_REGIONS = 3;
+/**
+ * A town links to the first town found within this many regions east of it, and the same to the south. A metropolis keeps the regions
+ * around it empty (`METRO_CLEAR`, about 2 regions), so a link from or to one reaches farther than the old 3 regions.
+ */
+const LINK_REGIONS = 5;
 const MAX_MEMO = 4096;
+/** A road that runs over more than this many cells of mountain (`MOUNTAIN_LEVEL` and up) looks for a detour; when none is better it keeps the pass with the least. */
+const MAX_MOUNTAIN = 96;
 /**
  * A road that runs on water for more than this many cells would be a causeway over a lake, so it tries a detour and is dropped when none
  * helps. A river crossed at 80 degrees off the perpendicular is 5.8 times its width: 23 cells for the narrowest river (4 wide) and 58 for
@@ -63,6 +71,10 @@ export class Roads {
 
 	private readonly towns: Towns;
 	private readonly water: Water;
+	private readonly relief: Relief;
+	/** Water run and mountain length of the curve last passed to `survey`, in cells. */
+	private longestWater = 0;
+	private mountainCells = 0;
 	private readonly regions = new Map<number, readonly Edge[]>();
 	private readonly touching: Edge[] = [];
 	private scannedX = Number.NaN;
@@ -82,9 +94,10 @@ export class Roads {
 		this.target[i] = wet === 1 || wet === 2 ? CellType.BRIDGE : this.roadType;
 	};
 
-	constructor(towns: Towns, water: Water) {
+	constructor(towns: Towns, water: Water, relief: Relief) {
 		this.towns = towns;
 		this.water = water;
+		this.relief = relief;
 	}
 
 	/** Replaces the content of `out` with the edges that start at the town of region (rx, ry): none without a town, up to two with one. */
@@ -113,6 +126,12 @@ export class Roads {
 		const bits = Towns.REGION_BITS;
 		touching.length = 0;
 		const edges = this.fromRegion;
+		/**
+		 * The longest link joins towns `LINK_REGIONS` regions apart: at most `(LINK_REGIONS + 1)` regions minus one cell along the link (3071
+		 * cells for 5) and under one region across (511). The road leaves its chord by at most `MAX_BEND`. The town that owns a link is always
+		 * west or north of the other, so a link that reaches the tile starts at most `LINK_REGIONS` regions before the margin of the tile, and
+		 * a link starting after the tile's far margin cannot reach it: the loop bounds below are exact for the longest link.
+		 */
 		for (let ry = ((y0 - SCAN_MARGIN) >> bits) - LINK_REGIONS; ry <= (y0 + size + SCAN_MARGIN) >> bits; ry++) {
 			for (let rx = ((x0 - SCAN_MARGIN) >> bits) - LINK_REGIONS; rx <= (x0 + size + SCAN_MARGIN) >> bits; rx++) {
 				this.edgesFrom(rx, ry, edges);
@@ -176,8 +195,9 @@ export class Roads {
 
 	/**
 	 * The road between two towns, or null when this pair has none. The decision depends on the pair only, not on which town asks.
-	 * The road is a quadratic curve bent by a hashed amount, or by the first detour that keeps it off water for `MAX_SPAN` cells. When no
-	 * detour does, the pair has no road: the lake is in the way.
+	 * The road is a quadratic curve bent by a hashed amount, or by the first detour that keeps it off water for `MAX_SPAN` cells and over
+	 * the mountains for `MAX_MOUNTAIN`. When no detour keeps it off the mountains, it takes the one with the least mountain (a pass over
+	 * the rock); when none keeps it off the water, the pair has no road: the lake or the sea is in the way.
 	 */
 	private edge(a: Town, b: Town): Edge | null {
 		const highway = a.tier > 0 && b.tier > 0;
@@ -190,9 +210,10 @@ export class Roads {
 		const length = Math.sqrt(dx * dx + dy * dy);
 		const base = (unit(hash(low, high, 0, Salt.ROAD_BEND)) - 0.5) * BEND;
 		const legs = Math.max(2, Math.ceil(length / LEG));
-		const points = new Int32Array(2 * (legs + 1));
-		let found = false;
-		for (let d = 0; d < DETOURS.length && !found; d++) {
+		const candidate = new Int32Array(2 * (legs + 1));
+		let points: Int32Array | null = null;
+		let fewest = Infinity;
+		for (let d = 0; d < DETOURS.length && fewest > MAX_MOUNTAIN; d++) {
 			const push = Math.max(-MAX_BEND, Math.min(MAX_BEND, (base + DETOURS[d]) * length));
 			/** The control point is twice as far as the middle of the curve, which lands halfway between it and the chord. */
 			const controlX = (a.x + b.x) / 2 - (dy / length) * 2 * push;
@@ -200,14 +221,17 @@ export class Roads {
 			for (let j = 0; j <= legs; j++) {
 				const t = j / legs;
 				const u = 1 - t;
-				points[2 * j] = Math.floor(u * u * a.x + 2 * u * t * controlX + t * t * b.x + 0.5);
-				points[2 * j + 1] = Math.floor(u * u * a.y + 2 * u * t * controlY + t * t * b.y + 0.5);
+				candidate[2 * j] = Math.floor(u * u * a.x + 2 * u * t * controlX + t * t * b.x + 0.5);
+				candidate[2 * j + 1] = Math.floor(u * u * a.y + 2 * u * t * controlY + t * t * b.y + 0.5);
 			}
-			found = this.longestSpan(points) <= MAX_SPAN;
+			this.survey(candidate);
+			if (this.longestWater > MAX_SPAN || this.mountainCells >= fewest) continue;
+			fewest = this.mountainCells;
+			points = Int32Array.from(candidate);
 		}
-		if (!found) return null;
+		if (points === null) return null;
 
-		const width = highway ? HIGHWAY_WIDTH : COUNTRY_WIDTH;
+		const width = highway ? (a.tier === 3 || b.tier === 3 ? MOTORWAY_WIDTH : HIGHWAY_WIDTH) : COUNTRY_WIDTH;
 		let minX = Infinity;
 		let minY = Infinity;
 		let maxX = -Infinity;
@@ -221,22 +245,33 @@ export class Roads {
 		return { a, b, type: highway ? CellType.HIGHWAY : CellType.AVENUE, width, points, minX: minX - width, minY: minY - width, maxX: maxX + width, maxY: maxY + width };
 	}
 
-	/** Longest stretch of water, in cells, on the road through `points`, looked up every `WATER_SAMPLE` cells along it. */
-	private longestSpan(points: Int32Array): number {
+	/**
+	 * Sets `longestWater` to the longest stretch of water, in cells, on the road through `points` and `mountainCells` to the cells of it at
+	 * `MOUNTAIN_LEVEL` and up, both looked up every `WATER_SAMPLE` cells along it. Water never covers a mountain, so only dry samples read
+	 * the elevation.
+	 */
+	private survey(points: Int32Array): void {
 		let longest = 0;
 		let run = 0;
+		let mountains = 0;
 		for (let p = 0; p + 3 < points.length; p += 2) {
 			const dx = points[p + 2] - points[p];
 			const dy = points[p + 3] - points[p + 1];
 			const samples = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / WATER_SAMPLE));
 			/** A leg starts where the last one ended, so its first point is already counted. */
 			for (let s = p === 0 ? 0 : 1; s <= samples; s++) {
-				if (this.water.at(points[p] + Math.floor((dx * s) / samples), points[p + 1] + Math.floor((dy * s) / samples))) {
+				const x = points[p] + Math.floor((dx * s) / samples);
+				const y = points[p + 1] + Math.floor((dy * s) / samples);
+				if (this.water.at(x, y)) {
 					run += WATER_SAMPLE;
 					if (run > longest) longest = run;
-				} else run = 0;
+				} else {
+					run = 0;
+					if (this.relief.elevationAt(x, y) >= MOUNTAIN_LEVEL) mountains += WATER_SAMPLE;
+				}
 			}
 		}
-		return longest;
+		this.longestWater = longest;
+		this.mountainCells = mountains;
 	}
 }

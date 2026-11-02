@@ -86,6 +86,11 @@ export class Water {
 		return this.river(x, y, this.relief.elevationAt(x, y));
 	}
 
+	/** The height field the rivers are the contour of, before the slope scaling: its gradient at a river cell points across the river. */
+	heightAt(x: number, y: number): number {
+		return this.height.at(x, y);
+	}
+
 	private wide(x: number, y: number, e: number): boolean {
 		return e < SEA_LEVEL || (e < HILL_LEVEL && this.lake.at(x, y) > LAKE_LEVEL);
 	}

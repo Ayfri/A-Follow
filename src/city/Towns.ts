@@ -1,10 +1,15 @@
 import { CellType } from '../core/CellType';
+import { DESERT_MOISTURE, DESERT_TEMP } from './Countryside';
 import { hash, Salt, unit } from './hash';
 import { SampledField, ValueNoise } from './Noise';
 import { type Relief, TOWN_MAX_ELEVATION } from './Relief';
 import type { Water } from './Water';
 
-export type Tier = 0 | 1 | 2;
+/** How a town is laid out: the planned grid, the grown tangle, the rings around a center, the main street, the quays, the loose sprawl. */
+export const TownKind = { PLANNED: 0, ORGANIC: 1, RADIAL: 2, LINEAR: 3, HARBOR: 4, SPRAWL: 5 } as const;
+export type TownKind = (typeof TownKind)[keyof typeof TownKind];
+
+export type Tier = 0 | 1 | 2 | 3;
 
 export interface Town {
 	/** Uint32 hash that names the town in the hashes of the layers that follow. */
@@ -16,8 +21,15 @@ export interface Town {
 	x: number;
 	y: number;
 	radius: number;
-	/** 0 village, 1 town, 2 city. */
+	/** 0 village, 1 town, 2 city, 3 metropolis. */
 	tier: Tier;
+	kind: TownKind;
+	/** Unit vector of the base street direction: along the shore of a harbor, along the river of a river town. */
+	axisX: number;
+	axisY: number;
+	/** 1, or 2.2 to 3.0 for a linear town: it is that many times longer along its axis than the circle of its radius, and as many times narrower across. */
+	stretch: number;
+	walled: boolean;
 	/** Cells between two streets of the grid, and the offset of the first street. */
 	block: number;
 	phaseX: number;
@@ -29,11 +41,56 @@ const TOWN_CHANCE = 0.6;
 /** The center stays 96 cells inside its region, so a town only ever reaches the regions around its own. */
 const CENTER_MARGIN = 96;
 const CENTER_SPREAD = 320;
-const VILLAGE_SHARE = 0.6;
-const TOWN_SHARE = 0.9;
+/** Share of the towns that are villages, then of those that are villages or towns: the rest are cities. */
+const VILLAGE_SHARE = 0.55;
+const TOWN_SHARE = 0.85;
 /** Radius range in cells, block range in cells, per tier. */
-const RADIUS: readonly (readonly [number, number])[] = [[48, 80], [110, 170], [200, 280]];
-const BLOCK: readonly (readonly [number, number])[] = [[20, 32], [20, 32], [18, 26]];
+const RADIUS: readonly (readonly [number, number])[] = [[48, 96], [120, 200], [220, 360], [600, 950]];
+const BLOCK: readonly (readonly [number, number])[] = [[20, 32], [20, 32], [18, 26], [18, 26]];
+/** The metropolis tier has its own lattice of 4096 cells, with a metropolis in `METRO_CHANCE` of its squares, placed in the middle half of the square. */
+const METRO_BITS = 12;
+const METRO_CHANCE = 0.3;
+const METRO_MARGIN = 1 << (METRO_BITS - 2);
+const METRO_SPREAD = 1 << (METRO_BITS - 1);
+/**
+ * No other town has its center within this many radii of a metropolis center. The metropolis square and its 8 neighbors cover it: a
+ * metropolis is at most 950 cells wide, and 1.1 times that is under the 2048 cells between a center and the edge of its square.
+ */
+export const METRO_CLEAR = 1.1;
+/** Share of the towns near water that are harbors, and of the towns near a river that are linear, which stretch along it. */
+const HARBOR_SHARE = 0.75;
+const RIVER_SHARE = 0.4;
+const KEEP_AXIS_SHARE = 0.35;
+const WALLED_SHARE = 0.5;
+/** Share of the towns in a desert that are dropped: the few that stay are oases. */
+const DESERT_DROP = 0.6;
+/** The harbor probe looks this far out from the center, as a share of the radius within these bounds, in the 12 directions of `DIRS`. */
+const HARBOR_PROBE_SHARE = 0.6;
+const HARBOR_PROBE_MIN = 40;
+const HARBOR_PROBE_MAX = 400;
+/** A town with water in 10 or more of the 12 directions is on a peninsula or an islet, not on a shore: its streets have no shore direction to follow. */
+const HARBOR_MAX_WET = 9;
+/** Distances from the center at which a river is looked for, and the step of the finite difference that gives its direction. */
+const RIVER_PROBES: readonly number[] = [30, 60];
+const RIVER_STEP = 4;
+const STRETCH_MIN = 2.2;
+const STRETCH_SPREAD = 0.8;
+/** A linear town is never bigger than a city, which bounds its reach: `RADIUS[LINEAR_MAX_TIER]` times `sqrt(STRETCH_MAX)`. */
+const LINEAR_MAX_TIER = 2;
+const STRETCH_MAX = STRETCH_MIN + STRETCH_SPREAD;
+/** The four axes and the two rational directions with a 3-4-5 triangle: 12 exact unit vectors, so no trigonometry is involved. */
+const DIRS: readonly (readonly [number, number])[] = [
+	[1, 0], [-1, 0], [0, 1], [0, -1],
+	[0.6, 0.8], [0.6, -0.8], [-0.6, 0.8], [-0.6, -0.8],
+	[0.8, 0.6], [0.8, -0.6], [-0.8, 0.6], [-0.8, -0.6],
+];
+/** Kind of a town without a shore or a river, per tier: the kind and the share up to which it is chosen, so the last is 1. */
+const KINDS: readonly (readonly (readonly [TownKind, number])[])[] = [
+	[[TownKind.ORGANIC, 0.4], [TownKind.LINEAR, 0.65], [TownKind.SPRAWL, 1]],
+	[[TownKind.PLANNED, 0.3], [TownKind.ORGANIC, 0.6], [TownKind.RADIAL, 0.75], [TownKind.SPRAWL, 1]],
+	[[TownKind.PLANNED, 0.4], [TownKind.RADIAL, 0.7], [TownKind.ORGANIC, 1]],
+	[[TownKind.PLANNED, 0.55], [TownKind.RADIAL, 1]],
+];
 /**
  * The outline is two octaves of noise: the coarse one (period 128) gives lobes and bays, the fine one (period 48) breaks the border up into
  * streets-long bumps. A single octave read as a smooth round blob.
@@ -53,14 +110,27 @@ export const DOWNTOWN_LEVEL = 0.55;
 /** Below this level a town thins out into suburbs: street segments drop out, lots stay empty more often. The same level is the inner ring of a town. */
 export const INNER_LEVEL = 0.3;
 
+/** The metropolis of a square of the metropolis lattice, with its center and the region that holds it. */
+interface Metropolis {
+	x: number;
+	y: number;
+	rx: number;
+	ry: number;
+	radius: number;
+}
+
 /**
  * Where the towns are and which cells are urban. The world is cut into regions of 512 cells with a town in 60% of them, so towns are
- * spread out and a cell only ever needs the towns of the regions around it.
+ * spread out and a cell only ever needs the towns of the regions around it. Above them, a lattice of 4096 cells holds a metropolis in 30%
+ * of its squares: it takes the place of the town of its region and keeps the other towns out of its way.
  */
 export class Towns {
 	static readonly REGION_BITS = 9;
-	/** Farthest a town reaches from its center: the largest radius times `BORDER_REACH`, rounded up. */
-	static readonly MAX_REACH = 392;
+	/**
+	 * Farthest a town reaches from its center: the metropolis radius or the widest linear town, whichever is larger (950 for the metropolis,
+	 * 360 times the square root of the longest stretch for a city), times `BORDER_REACH`, rounded up. 1330 cells, 2.6 regions.
+	 */
+	static readonly MAX_REACH = Math.ceil(Math.max(RADIUS[3][1], RADIUS[LINEAR_MAX_TIER][1] * Math.sqrt(STRETCH_MAX)) * BORDER_REACH);
 
 	private readonly seed: number;
 	private readonly water: Water;
@@ -70,6 +140,8 @@ export class Towns {
 	private shapeValues = new Float64Array(0);
 	/** Memo of `at`: the road layer asks for the same few regions at every tile, and each answer costs a water lookup. */
 	private readonly regions = new Map<number, Town | null>();
+	/** Memo of the metropolis lattice, by square. */
+	private readonly metropolises = new Map<number, Metropolis | null>();
 	private preparedX = Number.NaN;
 	private preparedY = Number.NaN;
 	private preparedSize = Number.NaN;
@@ -101,7 +173,10 @@ export class Towns {
 		return (rx + 2 ** 22) * 2 ** 23 + (ry + 2 ** 22);
 	}
 
-	/** The town of region (rx, ry), or null when it has none or its center would sit in water or too high up the mountains. */
+	/**
+	 * The town of region (rx, ry), or null when it has none, when its center would sit in water, too high up the mountains or in a desert,
+	 * or when a metropolis is in the way. A metropolis is only ever returned by the region of its center.
+	 */
 	at(rx: number, ry: number): Town | null {
 		const key = Towns.regionKey(rx, ry);
 		const known = this.regions.get(key);
@@ -112,16 +187,119 @@ export class Towns {
 		return town;
 	}
 
+	/** The metropolis of the square (sx, sy) of the metropolis lattice, or null: its center is rejected on water, too high and in a desert. */
+	private metropolis(sx: number, sy: number): Metropolis | null {
+		const key = Towns.regionKey(sx, sy);
+		const known = this.metropolises.get(key);
+		if (known !== undefined) return known;
+		const found = this.placeMetropolis(sx, sy);
+		if (this.metropolises.size >= MAX_MEMO) this.metropolises.clear();
+		this.metropolises.set(key, found);
+		return found;
+	}
+
+	private placeMetropolis(sx: number, sy: number): Metropolis | null {
+		const { seed, water, relief } = this;
+		if (unit(hash(seed, sx, sy, Salt.METRO_PRESENT)) >= METRO_CHANCE) return null;
+		const x = (sx << METRO_BITS) + METRO_MARGIN + (hash(seed, sx, sy, Salt.METRO_X) % METRO_SPREAD);
+		const y = (sy << METRO_BITS) + METRO_MARGIN + (hash(seed, sx, sy, Salt.METRO_Y) % METRO_SPREAD);
+		if (water.at(x, y) || relief.elevationAt(x, y) >= TOWN_MAX_ELEVATION) return null;
+		if (relief.temperatureAt(x, y) > DESERT_TEMP && relief.moistureAt(x, y) < DESERT_MOISTURE) return null;
+		const rx = x >> Towns.REGION_BITS;
+		const ry = y >> Towns.REGION_BITS;
+		return { x, y, rx, ry, radius: this.radiusOf(rx, ry, 3) };
+	}
+
+	private radiusOf(rx: number, ry: number, tier: Tier): number {
+		const [minRadius, maxRadius] = RADIUS[tier];
+		return minRadius + (hash(this.seed, rx, ry, Salt.TOWN_RADIUS) % (maxRadius - minRadius + 1));
+	}
+
 	private generate(rx: number, ry: number): Town | null {
-		const { seed } = this;
+		const { seed, water, relief } = this;
+		const sx = rx >> (METRO_BITS - Towns.REGION_BITS);
+		const sy = ry >> (METRO_BITS - Towns.REGION_BITS);
+		const own = this.metropolis(sx, sy);
+		if (own !== null && own.rx === rx && own.ry === ry) return this.make(rx, ry, own.x, own.y, 3);
+
 		if (unit(hash(seed, rx, ry, Salt.TOWN_PRESENT)) >= TOWN_CHANCE) return null;
 		const x = (rx << Towns.REGION_BITS) + CENTER_MARGIN + (hash(seed, rx, ry, Salt.TOWN_X) % CENTER_SPREAD);
 		const y = (ry << Towns.REGION_BITS) + CENTER_MARGIN + (hash(seed, rx, ry, Salt.TOWN_Y) % CENTER_SPREAD);
-		if (this.water.at(x, y) || this.relief.elevationAt(x, y) >= TOWN_MAX_ELEVATION) return null;
+		for (let j = sy - 1; j <= sy + 1; j++) {
+			for (let i = sx - 1; i <= sx + 1; i++) {
+				const metropolis = this.metropolis(i, j);
+				if (metropolis === null) continue;
+				const clear = METRO_CLEAR * metropolis.radius;
+				if ((x - metropolis.x) ** 2 + (y - metropolis.y) ** 2 < clear * clear) return null;
+			}
+		}
+		if (water.at(x, y) || relief.elevationAt(x, y) >= TOWN_MAX_ELEVATION) return null;
+		if (relief.temperatureAt(x, y) > DESERT_TEMP && relief.moistureAt(x, y) < DESERT_MOISTURE && unit(hash(seed, rx, ry, Salt.TOWN_DESERT)) < DESERT_DROP) return null;
 
 		const share = unit(hash(seed, rx, ry, Salt.TOWN_TIER));
-		const tier: Tier = share < VILLAGE_SHARE ? 0 : share < TOWN_SHARE ? 1 : 2;
-		const [minRadius, maxRadius] = RADIUS[tier];
+		return this.make(rx, ry, x, y, share < VILLAGE_SHARE ? 0 : share < TOWN_SHARE ? 1 : 2);
+	}
+
+	/** The town of tier `tier` centered at (x, y) in region (rx, ry): its kind comes from the shore and the rivers around the center. */
+	private make(rx: number, ry: number, x: number, y: number, tier: Tier): Town {
+		const { seed, water } = this;
+		const radius = this.radiusOf(rx, ry, tier);
+		/** An axis in any direction: the half angle tangent `t` of a hashed value, with no trigonometry. */
+		const t = 2 * unit(hash(seed, rx, ry, Salt.TOWN_AXIS)) - 1;
+		let axisX = (1 - t * t) / (1 + t * t);
+		let axisY = (2 * t) / (1 + t * t);
+
+		const probe = Math.max(HARBOR_PROBE_MIN, Math.min(HARBOR_PROBE_MAX, HARBOR_PROBE_SHARE * radius));
+		let wet = 0;
+		let shoreX = 0;
+		let shoreY = 0;
+		for (const [dx, dy] of DIRS) {
+			if (!water.wideAt(x + Math.round(dx * probe), y + Math.round(dy * probe))) continue;
+			wet++;
+			shoreX += dx;
+			shoreY += dy;
+		}
+
+		let kind: TownKind | null = null;
+		if (wet >= 1 && wet <= HARBOR_MAX_WET && unit(hash(seed, rx, ry, Salt.TOWN_HARBOR)) < HARBOR_SHARE) {
+			kind = TownKind.HARBOR;
+			/** The streets run along the shore: perpendicular to the sum of the directions that reach water. */
+			const length = Math.sqrt(shoreX * shoreX + shoreY * shoreY);
+			if (length > 0) {
+				axisX = -shoreY / length;
+				axisY = shoreX / length;
+			}
+		} else if (tier <= LINEAR_MAX_TIER && unit(hash(seed, rx, ry, Salt.TOWN_RIVER)) < RIVER_SHARE) {
+			let river = false;
+			for (let p = 0; p < RIVER_PROBES.length && !river; p++) {
+				for (let d = 0; d < DIRS.length && !river; d++) {
+					const px = x + Math.round(DIRS[d][0] * RIVER_PROBES[p]);
+					const py = y + Math.round(DIRS[d][1] * RIVER_PROBES[p]);
+					if (!water.riverAt(px, py)) continue;
+					river = true;
+					/** The gradient of the river's height field points across the river, so the town stretches along its perpendicular. */
+					const gx = water.heightAt(px + RIVER_STEP, py) - water.heightAt(px - RIVER_STEP, py);
+					const gy = water.heightAt(px, py + RIVER_STEP) - water.heightAt(px, py - RIVER_STEP);
+					const length = Math.sqrt(gx * gx + gy * gy);
+					if (length > 0) {
+						axisX = -gy / length;
+						axisY = gx / length;
+					}
+				}
+			}
+			if (river) kind = TownKind.LINEAR;
+		}
+		if (kind === null) {
+			const roll = unit(hash(seed, rx, ry, Salt.TOWN_KIND));
+			const shares = KINDS[tier];
+			kind = shares.find(([, upTo]) => roll < upTo)?.[0] ?? shares[shares.length - 1][0];
+			if (kind === TownKind.PLANNED && unit(hash(seed, rx, ry, Salt.TOWN_AXIS_KEEP)) < KEEP_AXIS_SHARE) {
+				axisX = 1;
+				axisY = 0;
+			}
+		}
+
+		const walled = kind === TownKind.ORGANIC ? tier >= 1 : (kind === TownKind.PLANNED || kind === TownKind.RADIAL) && tier >= 2 && unit(hash(seed, rx, ry, Salt.TOWN_WALLED)) < WALLED_SHARE;
 		const [minBlock, maxBlock] = BLOCK[tier];
 		const block = minBlock + (hash(seed, rx, ry, Salt.TOWN_BLOCK) % (maxBlock - minBlock + 1));
 		return {
@@ -130,8 +308,13 @@ export class Towns {
 			ry,
 			x,
 			y,
-			radius: minRadius + (hash(seed, rx, ry, Salt.TOWN_RADIUS) % (maxRadius - minRadius + 1)),
+			radius,
 			tier,
+			kind,
+			axisX,
+			axisY,
+			stretch: kind === TownKind.LINEAR ? STRETCH_MIN + STRETCH_SPREAD * unit(hash(seed, rx, ry, Salt.TOWN_STRETCH)) : 1,
+			walled,
 			block,
 			phaseX: hash(seed, rx, ry, Salt.TOWN_PHASE_X) % block,
 			phaseY: hash(seed, rx, ry, Salt.TOWN_PHASE_Y) % block,
@@ -227,16 +410,22 @@ export class Towns {
 		return true;
 	}
 
-	/** `urban` for a cell whose shape noise is already known. */
+	/**
+	 * `urban` for a cell whose shape noise is already known. The distance is measured in the frame of the axis, shrunk by `stretch` along it
+	 * and stretched across it, so a linear town is an ellipse of the same area as the circle of its radius.
+	 */
 	static level(town: Town, x: number, y: number, shape: number): number {
 		const dx = x - town.x;
 		const dy = y - town.y;
-		return 1 - Math.sqrt(dx * dx + dy * dy) / town.radius + SHAPE_WEIGHT * (shape - 0.5);
+		if (town.stretch === 1) return 1 - Math.sqrt(dx * dx + dy * dy) / town.radius + SHAPE_WEIGHT * (shape - 0.5);
+		const along = dx * town.axisX + dy * town.axisY;
+		const across = dy * town.axisX - dx * town.axisY;
+		return 1 - Math.sqrt((along * along) / town.stretch + across * across * town.stretch) / town.radius + SHAPE_WEIGHT * (shape - 0.5);
 	}
 
-	/** Distance from the center beyond which no cell of the town is urban. */
+	/** Distance from the center beyond which no cell of the town is urban: the far end of the axis of a linear town. */
 	static reach(town: Town): number {
-		return town.radius * BORDER_REACH;
+		return town.radius * Math.sqrt(town.stretch) * BORDER_REACH;
 	}
 
 	/** Whether the town can have an urban cell inside the tile. */
