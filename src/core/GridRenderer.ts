@@ -29,6 +29,12 @@ export class GridRenderer {
 	 * until its turn, and a chunk that is new draws empty: a fill appears over a few frames, and a color change shows both colors until every chunk is repacked.
 	 */
 	private static readonly REPACK_BUDGET_MS = 4;
+	/**
+	 * Time a frame may spend generating the visible chunks a generating world hasn't made yet, and at least one is generated per frame. A
+	 * chunk of countryside takes ~0.5 ms, so a first view of ~130 chunks appears over a few frames instead of freezing one; a chunk not
+	 * generated yet shows the background.
+	 */
+	private static readonly GENERATE_BUDGET_MS = 4;
 
 	private readonly grid: WallGrid;
 	private readonly cache = new Map<number, CachedChunk>();
@@ -56,8 +62,11 @@ export class GridRenderer {
 		const firstY = view.y >> CHUNK_BITS;
 		const lastY = (view.y + view.height - 1) >> CHUNK_BITS;
 		const { scale, offsetX, offsetY } = camera;
-		const deadline = performance.now() + GridRenderer.REPACK_BUDGET_MS;
+		const frameStart = performance.now();
+		const deadline = frameStart + GridRenderer.REPACK_BUDGET_MS;
+		const generateDeadline = frameStart + GridRenderer.GENERATE_BUDGET_MS;
 		let repacked = false;
+		let generated = false;
 
 		ctx.save();
 		ctx.imageSmoothingEnabled = false;
@@ -66,7 +75,11 @@ export class GridRenderer {
 			const top = Math.round((cy * CHUNK_SIZE - offsetY) * scale);
 			const bottom = Math.round(((cy + 1) * CHUNK_SIZE - offsetY) * scale);
 			for (let cx = firstX; cx <= lastX; cx++) {
-				const chunk = this.grid.chunkAt(cx, cy);
+				let chunk = this.grid.chunkAt(cx, cy);
+				if (chunk === undefined && this.grid.generates && (!generated || performance.now() < generateDeadline)) {
+					chunk = this.grid.ensureChunk(cx, cy);
+					generated = true;
+				}
 				const key = WallGrid.key(cx, cy);
 				if (chunk === undefined) {
 					this.cache.delete(key);

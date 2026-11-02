@@ -22,6 +22,8 @@ let latest: FindRequest | null = null;
 /** Set by a cancel: the running search stops at its next slice and its result isn't sent. */
 let cancelled = false;
 let running = false;
+/** Generation time between two looks at the message queue. */
+const GENERATE_SLICE_MS = 8;
 
 /** A ping on a MessageChannel runs after the messages already received (a timer would wait at least 4 ms once nested), so a newer request is seen. */
 const yieldToMessages = (): Promise<void> => new Promise((resolve) => {
@@ -48,6 +50,15 @@ const generate = ({ id, rect, generation }: GenerateRequest): void => {
 /** A search that throws is answered with no path, so the main thread doesn't wait for it. */
 const search = async (request: FindRequest): Promise<void> => {
 	try {
+		/**
+		 * In the City world the window (up to 512 chunks, ~240 ms of generation) is generated here in slices, so a newer request or a cancel is seen
+		 * between them. Chunks generated for a request that gets dropped stay cached, and the next request over the same area reuses them.
+		 */
+		grid.evict(request.window, WallGrid.MAX_CACHED_CHUNKS);
+		for (const _ of grid.ensureSlices(request.window, GENERATE_SLICE_MS)) {
+			await yieldToMessages();
+			if (latest !== null || cancelled) return;
+		}
 		const steps = finder.steps(grid, request.start, request.target, request.window, request.snap);
 		let step = steps.next();
 		while (!step.done) {

@@ -72,6 +72,7 @@ const sketch = (p: p5) => {
 		if (held.has('ArrowDown'))  dy += step;
 		if (dx !== 0 || dy !== 0) camera.pan(dx, dy);
 
+		grid.evict(camera.visibleRect(), WallGrid.MAX_CACHED_CHUNKS);
 		p.background(theme.background);
 		const ctx = p.drawingContext as CanvasRenderingContext2D;
 		renderer.drawWalls(ctx, camera, theme.wall);
