@@ -63,7 +63,16 @@ const TERRAIN_COLORS: readonly ThemeColor[] = [
 	{ key: 'field', storage: 'field', label: 'Field' },
 	{ key: 'forest', storage: 'forest', label: 'Forest' },
 	{ key: 'building', storage: 'building', label: 'Building' },
-	{ key: 'water', storage: 'water', label: 'Water' }
+	{ key: 'water', storage: 'water', label: 'Water' },
+	{ key: 'sand', storage: 'sand', label: 'Sand' },
+	{ key: 'marsh', storage: 'marsh', label: 'Marsh' },
+	{ key: 'rock', storage: 'rock', label: 'Rock' },
+	{ key: 'snow', storage: 'snow', label: 'Snow' },
+	{ key: 'hill', storage: 'hill', label: 'Hill' },
+	{ key: 'meadow', storage: 'meadow', label: 'Meadow' },
+	{ key: 'orchard', storage: 'orchard', label: 'Orchard' },
+	{ key: 'pine', storage: 'pine', label: 'Pine Forest' },
+	{ key: 'rampart', storage: 'rampart', label: 'Rampart' }
 ];
 
 const MAX_SEED = 2 ** 32 - 1;

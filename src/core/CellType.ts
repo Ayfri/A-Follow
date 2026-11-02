@@ -12,11 +12,23 @@ export const CellType = {
 	FOREST: 9,
 	BUILDING: 10,
 	WATER: 11,
+	SAND: 12,
+	MARSH: 13,
+	ROCK: 14,
+	SNOW: 15,
+	HILL: 16,
+	MEADOW: 17,
+	ORCHARD: 18,
+	PINE: 19,
+	RAMPART: 20,
 } as const;
 export type CellType = (typeof CellType)[keyof typeof CellType];
 
-/** Bytes 12 to 15 are unused and blocked, so a stray byte never reads as passable. */
-export const TYPE_COUNT = 16;
+/**
+ * Bytes 21 to 31 are unused and blocked, so a stray byte never reads as passable. No passable type may use id 31: `PathFinder` keeps one
+ * bit per passable type in an int32 mask, and `1 << 31` is negative.
+ */
+export const TYPE_COUNT = 32;
 
 /**
  * Cost to enter a cell of each type, 0 = blocked. The start cell of a path never counts. Ground costs 4x the cheapest road, which bounds
@@ -32,9 +44,17 @@ COST[CellType.PLAZA] = 2;
 COST[CellType.PARK] = 3;
 COST[CellType.FIELD] = 5;
 COST[CellType.FOREST] = 8;
+COST[CellType.SAND] = 6;
+COST[CellType.MARSH] = 12;
+COST[CellType.SNOW] = 10;
+COST[CellType.HILL] = 6;
+COST[CellType.MEADOW] = 4;
+COST[CellType.ORCHARD] = 5;
+COST[CellType.PINE] = 7;
 
 /** 1 where the type blocks movement (cost 0), else 0. */
 export const BLOCKED = COST.map((cost) => (cost === 0 ? 1 : 0));
 
 export const MIN_COST = 1;
-export const MAX_COST = 8;
+/** The weighted search's bucket ring is `2 * MAX_COST` rounded up to a power of two (32 up to MAX_COST 15), a bigger value grows it. */
+export const MAX_COST = 12;

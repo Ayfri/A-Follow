@@ -100,7 +100,7 @@ export class PathFinder {
 	/**
 	 * Ring size of the weighted search's bucket queue, the smallest power of two above `2 * MAX_COST`. The heuristic is consistent and its
 	 * scale is at most `MAX_COST`, so every open entry has an F within `MAX_COST + scale` of the bucket being drained: the F values in
-	 * the ring span less than its size, and no two of them share a slot.
+	 * the ring span less than its size, and no two of them share a slot (`MAX_COST + scale <= 24 < 32` today).
 	 */
 	private static readonly BUCKETS = 1 << (32 - Math.clz32(2 * MAX_COST));
 	/** One bit per type that doesn't block: what an unknown chunk of a generating world may hold. */

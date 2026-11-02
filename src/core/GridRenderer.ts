@@ -49,7 +49,16 @@ export class GridRenderer {
 		[CellType.FIELD, 'field'],
 		[CellType.FOREST, 'forest'],
 		[CellType.BUILDING, 'building'],
-		[CellType.WATER, 'water']
+		[CellType.WATER, 'water'],
+		[CellType.SAND, 'sand'],
+		[CellType.MARSH, 'marsh'],
+		[CellType.ROCK, 'rock'],
+		[CellType.SNOW, 'snow'],
+		[CellType.HILL, 'hill'],
+		[CellType.MEADOW, 'meadow'],
+		[CellType.ORCHARD, 'orchard'],
+		[CellType.PINE, 'pine'],
+		[CellType.RAMPART, 'rampart']
 	];
 
 	private readonly grid: WallGrid;
