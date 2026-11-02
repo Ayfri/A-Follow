@@ -1,9 +1,12 @@
 import { CellType } from '../core/CellType';
 import { CBD_LEVEL, type District, Districts } from './Districts';
+import { Harbor, WallZone } from './Features';
 import { type CellView, FrameKind, Line } from './Frame';
 import { hash, Salt, unit } from './hash';
 import { hasRingRoad, RING_ROAD_SHARE, RING_ROAD_WIDTH, radialFrame, PLAZA_SHARE } from './Radial';
+import type { Relief } from './Relief';
 import { DOWNTOWN_LEVEL, INNER_LEVEL, type Town, TownKind, Towns } from './Towns';
+import type { Water } from './Water';
 
 /** How a block is built: the biggest lot side before it is split, the yard around a building, and the share of lots left as empty yards. */
 interface Zone {
@@ -72,6 +75,9 @@ interface Block {
  * lots of the block with their buildings. Rock (mask code 3) is left alone. Streets stop at the water; avenues bridge a river and stop at
  * the sea and at a lake, where a bridge would be hundreds of cells long. A street segment that is dropped is open ground. The hub of a
  * radial town is its plaza, which takes its cells before the lines, and the ring road of a radial city or metropolis is painted last.
+ * A walled town has its rampart first (the cells of the wall that are dry and not in a gate), then the avenues of its gates, before the
+ * district boundaries and the lines. In a harbor the dry cells of the beach and of the lake shore that no line holds are quay (plaza,
+ * no lots), and the lines across the shore go on over shallow water as piers (bridge cells).
  *
  * A cell only reads its owner, the nine seeds around it, the lines of its frame and, in a warped frame, the warp fields at itself and the
  * cell after it; a block is a pure function of its frame key and its numbers, so a tile of any size and origin gives the same cells as a
@@ -80,6 +86,7 @@ interface Block {
 export class Fabric {
 	private readonly towns: Towns;
 	private readonly districts: Districts;
+	private readonly harbor: Harbor;
 	/** Blocks of the town being painted, by block key, and the rectangles of their buildings (4 numbers each). Cleared for every town of every tile. */
 	private readonly blocks = new Map<number, Block>();
 	private rects = new Int32Array(1024);
@@ -95,9 +102,10 @@ export class Fabric {
 	private aligned = false;
 	private warped = false;
 
-	constructor(towns: Towns, seed: number) {
+	constructor(towns: Towns, seed: number, relief: Relief, water: Water) {
 		this.towns = towns;
 		this.districts = new Districts(towns, seed);
+		this.harbor = new Harbor(towns, relief, water);
 	}
 
 	/** Paints the towns near the `size` x `size` tile at (x0, y0); `mask` is the water mask of `Water.fill` with 3 on rock. */
@@ -146,8 +154,10 @@ export class Fabric {
 		const shared = towns.present.length > 1;
 		const reach = Towns.reach(town);
 		/** The plaza of a radial town is the hub of its spokes: it takes its cells before the lines, so no ring or spoke runs through it. */
-		const hub = town.kind === TownKind.RADIAL;
+		const hub = town.kind === TownKind.RADIAL && !town.walled;
 		const plaza = hub ? PLAZA_SHARE * radialFrame(town).blockA : PLAZA_RADIUS + PLAZA_PER_TIER * town.tier;
+		/** Whether a tile of a harbor can hold a quay or a pier: the others skip the elevation lookups. */
+		const shore = town.kind === TownKind.HARBOR && this.harbor.prepare(x0, y0, size, mask);
 		districts.prepare(town, x0, y0, size);
 		blocks.clear();
 		this.rectCount = 0;
@@ -169,10 +179,18 @@ export class Fabric {
 					if (wet === 0) out[i] = CellType.PLAZA;
 					continue;
 				}
+				if (wet === 2) {
+					if (shore && this.harbor.pier(town, x, y)) out[i] = CellType.BRIDGE;
+					continue;
+				}
 				const district = districts.locate(x, y);
 				const { view } = district;
+				if (districts.zone === WallZone.RAMPART && wet === 0) {
+					out[i] = CellType.RAMPART;
+					continue;
+				}
 				let line: number = Line.AVENUE;
-				if (!districts.boundary) {
+				if (!districts.boundary && !districts.gate(x, y)) {
 					view.locate(x, y);
 					line = view.line;
 				}
@@ -183,7 +201,7 @@ export class Fabric {
 					continue;
 				} else if (line === Line.STREET && !this.dropped(town, view, level)) {
 					out[i] = CellType.STREET;
-				} else if (center) {
+				} else if (center || (shore && this.harbor.quay(i))) {
 					out[i] = CellType.PLAZA;
 				} else {
 					out[i] = line === Line.STREET ? CellType.GROUND : this.content(town, district, x, y);

@@ -83,4 +83,7 @@ export const Salt = {
 	SEGMENT_DROP_A: 68,
 	SEGMENT_DROP_B: 69,
 	RADIAL: 70,
+	WALL_SHAPE: 71,
+	WALL_CORE: 72,
+	PIER: 73,
 } as const;

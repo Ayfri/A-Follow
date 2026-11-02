@@ -131,6 +131,8 @@ export class Towns {
 	private readonly relief: Relief;
 	private readonly shape: SampledField;
 	private readonly nearby: Town[] = [];
+	/** Scratch list of `paints`, apart from `nearby` so a point query never touches the towns of the prepared tile. */
+	private readonly around: Town[] = [];
 	private shapeValues = new Float64Array(0);
 	/** Memo of `at`: the road layer asks for the same few regions at every tile, and each answer costs a water lookup. */
 	private readonly regions = new Map<number, Town | null>();
@@ -373,6 +375,24 @@ export class Towns {
 			const other = nearby[o];
 			if (other === town) continue;
 			const otherLevel = Towns.level(other, x, y, shape);
+			if (otherLevel > level || (otherLevel === level && other.id >= town.id)) return false;
+		}
+		return true;
+	}
+
+	/**
+	 * `owns` for any cell, with no tile: the level of the town above 0 and no town of the cell's neighborhood deeper. It gives the answer of
+	 * the tile arrays for a cell of any tile, so a layer can look past the edge of its tile without changing what it paints.
+	 */
+	paints(town: Town, x: number, y: number): boolean {
+		const level = this.urban(town, x, y);
+		if (level <= 0) return false;
+		const { around } = this;
+		this.near(x, y, 1, Towns.MAX_REACH, around);
+		for (let o = 0; o < around.length; o++) {
+			const other = around[o];
+			if (other === town) continue;
+			const otherLevel = this.urban(other, x, y);
 			if (otherLevel > level || (otherLevel === level && other.id >= town.id)) return false;
 		}
 		return true;

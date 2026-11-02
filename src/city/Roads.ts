@@ -91,10 +91,12 @@ export class Roads {
 	/**
 	 * Bound once: the rasterizer calls it for every cell, with no allocation per call. A road bridges water and cuts through rock (a mountain
 	 * pass). A country road leaves the highway under it alone: it would cut the ring road of a town, which the fabric painted before the roads.
+	 * No road cuts a rampart: the gates are the only way through the wall of a town, so a road that reaches it stops there.
 	 */
 	private readonly stamp = (i: number): void => {
 		const wet = this.mask[i];
 		if (wet === 1 || wet === 2) this.target[i] = CellType.BRIDGE;
+		else if (this.target[i] === CellType.RAMPART) return;
 		else if (this.roadType !== CellType.AVENUE || this.target[i] !== CellType.HIGHWAY) this.target[i] = this.roadType;
 	};
 

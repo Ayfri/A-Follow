@@ -1,3 +1,4 @@
+import { Walls, WallZone } from './Features';
 import { type CellView, type Frame, FrameKind, FrameView, linePosition, WarpSet } from './Frame';
 import { hash, Salt, unit } from './hash';
 import { radialFrame, RadialView } from './Radial';
@@ -96,20 +97,31 @@ export interface District {
  * seed per square), each with its own street frame, and the boundary between two districts is an avenue. A village and a linear town are
  * one district. `prepare` finds the seeds that matter for a tile and builds their frames, and a cell only compares those, so a tile of any
  * size and origin gives a cell the same district. A radial town has one more district, the disc of its rings and spokes around the center,
- * which takes its cells before the seeds are compared; the districts around it are grids that point at the center.
+ * which takes its cells before the seeds are compared; the districts around it are grids that point at the center. A walled town has one
+ * more, the organic quarter inside and on its rampart, which takes its cells before the disc does.
  */
 export class Districts {
 	private readonly towns: Towns;
 	private readonly warps: readonly [WarpSet, WarpSet];
+	private readonly walls: Walls;
 	private entries: District[] = [];
 	private radial: District | null = null;
 	private disc: RadialView | null = null;
+	private core: District | null = null;
 	/** Whether the last `locate` cell is within the boundary avenue of its district. */
 	boundary = false;
+	/** The `WallZone` of the last `locate` cell: always OUT in a town with no wall. */
+	zone: number = WallZone.OUT;
 
 	constructor(towns: Towns, seed: number) {
 		this.towns = towns;
 		this.warps = [new WarpSet(seed, 0), new WarpSet(seed, 1)];
+		this.walls = new Walls(seed);
+	}
+
+	/** Whether the cell (x, y) is on the avenue of a gate of the wall of the prepared town, if it has one. */
+	gate(x: number, y: number): boolean {
+		return this.core !== null && this.walls.road(x, y);
 	}
 
 	/** The view of a district frame over the tile; a WARP frame reads the warp fields of its set, which are filled once per tile whatever the number of towns. */
@@ -124,6 +136,8 @@ export class Districts {
 		this.entries = entries;
 		this.radial = null;
 		this.disc = null;
+		this.core = null;
+		this.zone = WallZone.OUT;
 		if (side === 0) {
 			entries.push({ slot: 0, sx: town.x, sy: town.y, view: this.view(this.frameOf(town, 0, 0, town.x, town.y), x0, y0, size) });
 			return;
@@ -154,16 +168,25 @@ export class Districts {
 			if (seed.near > reach + CANDIDATE_MARGIN) continue;
 			entries.push({ slot: entries.length, sx: seed.sx, sy: seed.sy, view: this.view(this.frameOf(town, seed.i, seed.j, seed.sx, seed.sy), x0, y0, size) });
 		}
-		if (town.kind !== TownKind.RADIAL) return;
-
-		/** A tile farther from the center than the ring that bounds the disc, plus the thickness of the ring, holds no cell of it. */
-		const frame = radialFrame(town);
 		const nearX = Math.max(x0 - town.x, 0, town.x - x1);
 		const nearY = Math.max(y0 - town.y, 0, town.y - y1);
-		const discReach = linePosition(frame, 0, frame.rings) + AVENUE_WIDTH;
-		if (nearX * nearX + nearY * nearY > discReach * discReach) return;
-		this.disc = new RadialView(frame);
-		this.radial = { slot: entries.length, sx: town.x, sy: town.y, view: this.disc };
+		const near = nearX * nearX + nearY * nearY;
+		if (town.kind === TownKind.RADIAL) {
+			/** A tile farther from the center than the ring that bounds the disc, plus the thickness of the ring, holds no cell of it. */
+			const frame = radialFrame(town);
+			const discReach = linePosition(frame, 0, frame.rings) + AVENUE_WIDTH;
+			if (near <= discReach * discReach) {
+				this.disc = new RadialView(frame);
+				this.radial = { slot: entries.length, sx: town.x, sy: town.y, view: this.disc };
+			}
+		}
+		if (town.walled) {
+			const wallReach = Walls.reachOf(town);
+			if (near <= wallReach * wallReach) {
+				this.walls.prepare(town);
+				this.core = { slot: entries.length + 1, sx: town.x, sy: town.y, view: this.view(this.frameOf(town, 0, 0, town.x, town.y, true), x0, y0, size) };
+			}
+		}
 	}
 
 	/**
@@ -173,7 +196,14 @@ export class Districts {
 	 * `BOUNDARY_WIDTH * (|nx| + |ny|) / (2 |n|)`: the `2 |n|` cancels.
 	 */
 	locate(x: number, y: number): District {
-		const { entries, radial, disc } = this;
+		const { entries, radial, disc, core } = this;
+		if (core !== null) {
+			this.zone = this.walls.zone(x, y);
+			if (this.zone !== WallZone.OUT) {
+				this.boundary = false;
+				return core;
+			}
+		}
 		if (radial !== null && disc !== null && disc.contains(x, y)) {
 			this.boundary = false;
 			return radial;
@@ -203,9 +233,12 @@ export class Districts {
 		return best;
 	}
 
-	/** The street frame of the district of seed (sx, sy) in square (i, j), chosen by the kind of the town and the level at the seed. */
-	private frameOf(town: Town, i: number, j: number, sx: number, sy: number): Frame {
-		const key = hash(town.id, i, j, Salt.DISTRICT);
+	/**
+	 * The street frame of the district of seed (sx, sy) in square (i, j), chosen by the kind of the town and the level at the seed. The
+	 * quarter inside the wall (`core`) is organic whatever the kind of the town: the old town grew before the rest was planned.
+	 */
+	private frameOf(town: Town, i: number, j: number, sx: number, sy: number, core = false): Frame {
+		const key = core ? hash(town.id, 0, 0, Salt.WALL_CORE) : hash(town.id, i, j, Salt.DISTRICT);
 		const param = (id: number): number => hash(key, id, 0, Salt.FRAME);
 		const level = this.towns.urban(town, sx, sy);
 		const { kind } = town;
@@ -213,7 +246,10 @@ export class Districts {
 		let style = PLAN_STYLE;
 		let spread = 0;
 		let free = false;
-		if (kind === TownKind.LINEAR) {
+		if (core) {
+			style = ORGANIC_STYLE;
+			free = true;
+		} else if (kind === TownKind.LINEAR) {
 			style = LINEAR_STYLE;
 		} else if (kind === TownKind.SPRAWL || (town.tier >= 1 && level < EDGE_LEVEL && ((kind === TownKind.PLANNED && unit(param(Param.SPRAWL)) < PLANNED_SPRAWL) || (kind === TownKind.ORGANIC && unit(param(Param.SPRAWL)) < ORGANIC_SPRAWL)))) {
 			style = SPRAWL_STYLE;

@@ -27,7 +27,14 @@ const SLOPE_MAX = 4e-3;
 const RIVER_REACH = RIVER_HALF_MAX * SLOPE_MAX * 1.01;
 const LAKE_PERIOD = 640;
 /** Value noise only passes this level around a lattice peak, so lakes are rare. */
-const LAKE_LEVEL = 0.9;
+export const LAKE_LEVEL = 0.9;
+/**
+ * The lake values of a tile are kept when its lattice reaches this far under `LAKE_LEVEL` and its ground is under `HILL_LEVEL` plus this
+ * much, so the quay of a harbor (the dry ground next to a lake: within this much of the lake level, or of the hill level that cuts the
+ * lake off) is the same cell in a tile whose lattice stays outside those bounds. The lake noise changes by at most 1.5 / 640 per cell and
+ * the elevation by at most 0.003, so a dry cell next to the lake is always in the band.
+ */
+export const LAKE_QUAY = 0.01;
 
 /** Half width of the river at elevation `e`; a river in the sea is as wide as at the coast. */
 const halfWidth = (e: number): number => RIVER_HALF_MIN + (RIVER_HALF_MAX - RIVER_HALF_MIN) * Math.min(1, (MOUNTAIN_LEVEL - e) / (MOUNTAIN_LEVEL - SEA_LEVEL));
@@ -86,6 +93,11 @@ export class Water {
 		return this.river(x, y, this.relief.elevationAt(x, y));
 	}
 
+	/** The lake noise at (x, y): above `LAKE_LEVEL` is a lake wherever the ground is under `HILL_LEVEL`. */
+	lakeValueAt(x: number, y: number): number {
+		return this.lake.at(x, y);
+	}
+
 	/** The height field the rivers are the contour of, before the slope scaling: its gradient at a river cell points across the river. */
 	heightAt(x: number, y: number): number {
 		return this.height.at(x, y);
@@ -136,7 +148,7 @@ export class Water {
 			distance.sample(x0, y0, size);
 			rivers = distance.lowest < RIVER_HALF_MAX && distance.highest > -RIVER_HALF_MAX;
 		}
-		const lakes = relief.lowE < HILL_LEVEL && lake.highest > LAKE_LEVEL;
+		const lakes = relief.lowE < HILL_LEVEL + LAKE_QUAY && lake.highest > LAKE_LEVEL - LAKE_QUAY;
 		if (!rivers && !lakes && relief.lowE >= SEA_LEVEL) {
 			mask.fill(0, 0, cells);
 			return 0;
