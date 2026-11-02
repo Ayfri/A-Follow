@@ -40,7 +40,8 @@ const LINK_REGIONS = 3;
 const MAX_MEMO = 4096;
 /**
  * A road that runs on water for more than this many cells would be a causeway over a lake, so it tries a detour and is dropped when none
- * helps. A river 5 cells wide crossed at 80 degrees is 29.
+ * helps. A river crossed at 80 degrees off the perpendicular is 5.8 times its width: 23 cells for the narrowest river (4 wide) and 58 for
+ * the widest (10 wide, at the coast), which only a straighter crossing bridges.
  */
 const MAX_SPAN = 36;
 /**
@@ -77,7 +78,8 @@ export class Roads {
 	private roadType: number = CellType.AVENUE;
 	/** Bound once: the rasterizer calls it for every cell, with no allocation per call. */
 	private readonly stamp = (i: number): void => {
-		this.target[i] = this.mask[i] === 1 ? CellType.BRIDGE : this.roadType;
+		const wet = this.mask[i];
+		this.target[i] = wet === 1 || wet === 2 ? CellType.BRIDGE : this.roadType;
 	};
 
 	constructor(towns: Towns, water: Water) {

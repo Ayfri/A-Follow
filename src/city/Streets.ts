@@ -1,7 +1,6 @@
 import { CellType } from '../core/CellType';
 import { hash, Salt, unit } from './hash';
 import { DOWNTOWN_LEVEL, INNER_LEVEL, type Town, Towns } from './Towns';
-import type { Water } from './Water';
 
 /** Every 4th street of a town is an avenue, 2 cells wide. */
 const AVENUE_EVERY = 4;
@@ -15,15 +14,13 @@ const EDGE_DROP_SHARE = 0.5;
 
 /**
  * The street grid of every town: straight streets and avenues in both directions, only where the town is urban. Streets stop at the
- * water, avenues bridge a river and stop at a lake: a bridge over a lake would be hundreds of cells long.
+ * water, avenues bridge a river and stop at the sea and at a lake: a bridge over them would be hundreds of cells long.
  */
 export class Streets {
 	private readonly towns: Towns;
-	private readonly water: Water;
 
-	constructor(towns: Towns, water: Water) {
+	constructor(towns: Towns) {
 		this.towns = towns;
-		this.water = water;
 	}
 
 	/** Position on `axis` (0 for the vertical lines at a given x, 1 for the horizontal lines at a given y) of the line number `k` of the town. */
@@ -45,7 +42,7 @@ export class Streets {
 		return k;
 	}
 
-	/** Paints the streets, then the avenues, of every town near the `size` x `size` tile at (x0, y0); `mask` is 1 on water. */
+	/** Paints the streets, then the avenues, of every town near the `size` x `size` tile at (x0, y0); `mask` is the water mask of `Water.fill`. */
 	paint(x0: number, y0: number, size: number, out: Uint8Array, mask: Uint8Array): void {
 		const { towns } = this;
 		towns.prepare(x0, y0, size);
@@ -103,7 +100,7 @@ export class Streets {
 
 					if (avenues) {
 						if (mask[i] === 0) out[i] = CellType.AVENUE;
-						else if (!this.water.lakeAt(x, y)) out[i] = CellType.BRIDGE;
+						else if (mask[i] === 1) out[i] = CellType.BRIDGE;
 					} else if (mask[i] === 0) {
 						const dropped = roll < DROP_SHARE + (level < INNER_LEVEL ? EDGE_DROP_SHARE * (1 - level / INNER_LEVEL) : 0);
 						if (!dropped || crossing || (town.tier > 0 && level > DOWNTOWN_LEVEL)) out[i] = CellType.STREET;
