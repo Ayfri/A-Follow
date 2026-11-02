@@ -1,7 +1,7 @@
 import type { Connectivity } from './Connectivity';
 import { CHUNK_BITS, CHUNK_SIZE, type CellRect, type Position, type WallGrid } from './WallGrid';
 
-export type SearchKind = 'astar' | 'bidirectional';
+export type SearchKind = 'astar' | 'bidirectional' | 'jps4';
 
 /** Neighbor order of the search: up, right, down, left. It decides which of several shortest paths is returned. */
 const DX = [0, 1, 0, -1];
@@ -17,10 +17,12 @@ interface Span {
 }
 
 /**
- * Shortest paths on a bounded window of the infinite grid, on 4-neighbors: A* with a Manhattan heuristic, or on dense windows a
- * bidirectional breadth-first search (`choose`). Both return a shortest path, but not always the same one.
+ * Shortest paths on a bounded window of the infinite grid, on 4-neighbors: A* with a Manhattan heuristic on almost open windows,
+ * JPS4 on most others, and a bidirectional breadth-first search on dense ones (`choose`). All return a shortest path, but not always the same one.
  * Ties resolve the same way every run: neighbors are taken up, right, down, left. A* orders open entries by F, then H, then insertion
  * order. The breadth-first search is FIFO, expands the smaller frontier first (forward when equal) and keeps the first discovery of a cell.
+ * JPS4 (arXiv 2501.14816) is A* over jump points with a horizontal-first canonical ordering: a vertical run jumps to the next cell with a
+ * forced neighbor (or the goal), a horizontal move is a single step, and the edge cost is the run length.
  * The typed buffers only grow and are reused across searches, so a search allocates nothing but its result.
  * Given a `Connectivity`, a target the start can't reach inside the window is rejected before the window is copied, not by scanning it.
  */
@@ -35,8 +37,8 @@ export class PathFinder {
 	 */
 	static readonly MAX_WINDOW_AREA = 1 << 23;
 	/**
-	 * Expanded nodes between two yields of `steps`, which is how late a newer request is seen: a slice takes ~6 to 7 ms (median) with A*
-	 * and ~3 to 4 ms with the bidirectional search, on a 2240 x 1265 maze in bun and node.
+	 * Expanded nodes between two yields of `steps` (scanned cells for JPS4), which is how late a newer request is seen. A slice takes, in
+	 * node on 2240 x 1265, medians: A* ~7 ms on a maze and 15 to 18 ms on random grids, the bidirectional search 3 to 4 ms, JPS4 2 to 6 ms.
 	 */
 	static readonly SLICE = 50_000;
 	/**
@@ -48,14 +50,22 @@ export class PathFinder {
 	/** A near window bigger than this is not searched: copying it would cost more than the attempt can save. */
 	static readonly NEAR_AREA = 1 << 17;
 	/**
-	 * Wall density (see `density`) from which a search without a given kind is the bidirectional one. Full-window queries 200+ apart,
-	 * A* median against bidirectional on 2240 x 1265 and 2048 x 2048 in node (V8), in ms: random 20%: 191 / 594 and 455 / 648; 29 to 30%:
-	 * 388 / 516 and 570 / 669; 34 to 35%: 583 / 532 and 526 / 515 (a tie at 2048); 38 to 40%: 1142 / 455 and 1212 / 517; mazes: 1435 / 716 and
-	 * 1409 / 666. Bun agrees (A* wins up to 30%, bidirectional from 34%). The threshold is halfway between 0.30, the highest density where
-	 * A* wins at both sizes, and 0.336, the lowest where bidirectional does. A search from one end only never beat the bidirectional one
-	 * (a tie on mazes) and is not kept. A wrong choice costs time and never a path.
+	 * Wall densities (see `density`) that pick the search of a query without a given kind: A* below `JPS_DENSITY`, JPS4 from there up to
+	 * `BFS_DENSITY`, the bidirectional search from there. Full-window queries 200+ apart on random grids of 2240 x 1265 and 2048 x 2048,
+	 * medians in node (V8), in ms, 12 queries per pass:
+	 *  - open: A* 5 / JPS4 70 (it scans lines to the edge), 1 to 2%: a tie, 5%: 94 / 73 and 112 / 75, 10%: 118 / 86 and 584 / 363,
+	 *    20%: 182 / 139 and 445 / 289, 30%: 352 / 242 and 554 / 395, 35%: bidirectional 489 / JPS4 383 and 514 / 370;
+	 *  - 36%: bidirectional 473 / JPS4 397 (JPS4 faster) and 742 / 689, 37%: 545 / 584 (tie) and 487 / 401 (JPS4 faster),
+	 *    38%: 571 / 673 (bidirectional faster) and 499 / 528 (tie), 39%: 512 / 689 and 470 / 576, 40%: 421 / 729 and 509 / 822;
+	 *  - mazes: bidirectional 671 / JPS4 988 and 659 / 1047, and 2 to 2.1x faster than A*; at 40% it is 2.4 to 2.5x faster than A*.
+	 * Bun gives the same bands. A* beats the bidirectional search up to ~30% (0.72 to 0.91x for bidirectional), a range JPS4 now beats too.
+	 * The bounds sit halfway between the last density where one side wins and the first where the other does (0.03 between a tie at 0.02
+	 * and a win at 0.05, 0.36 between JPS4 still winning at 0.346 and 0.370 and the bidirectional search winning at 0.365 and 0.390). A search
+	 * from one end only never beat the bidirectional one (a tie on mazes) and is not kept. Pairs 20 to 200 apart show no difference between the
+	 * three (a search costs ~2.5 ms, mostly the window copy), so the distance doesn't enter the choice. A wrong choice costs time, never a path.
 	 */
-	static readonly BFS_DENSITY = 0.32;
+	static readonly JPS_DENSITY = 0.03;
+	static readonly BFS_DENSITY = 0.36;
 
 	private walls = new Uint8Array(0);
 	/** Best cost per cell, only meaningful where `state` is at least `base`. The nearest-open-cell search borrows it as its queue. */
@@ -293,7 +303,8 @@ export class PathFinder {
 	}
 
 	private static choose(grid: WallGrid, window: CellRect): SearchKind {
-		return PathFinder.density(grid, window) >= PathFinder.BFS_DENSITY ? 'bidirectional' : 'astar';
+		const density = PathFinder.density(grid, window);
+		return density >= PathFinder.BFS_DENSITY ? 'bidirectional' : density >= PathFinder.JPS_DENSITY ? 'jps4' : 'astar';
 	}
 
 	/** Sets up the search state for `run`. */
@@ -309,8 +320,9 @@ export class PathFinder {
 		this.startCell = (start.y - oy) * W + start.x - ox;
 		this.goalCell = (goal.y - oy) * W + goal.x - ox;
 		this.state[this.startCell] = this.base;
-		if (kind === 'astar') {
+		if (kind !== 'bidirectional') {
 			this.g[this.startCell] = 0;
+			this.from[this.startCell] = 4;
 			const startH = Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y);
 			this.push(this.startCell, startH, startH);
 			return;
@@ -329,7 +341,89 @@ export class PathFinder {
 	}
 
 	private run(budget: number): Position[] | null | undefined {
-		return this.kind === 'astar' ? this.runAStar(budget) : this.runBidirectional(budget);
+		return this.kind === 'astar' ? this.runAStar(budget) : this.kind === 'jps4' ? this.runJps(budget) : this.runBidirectional(budget);
+	}
+
+	/** JPS4 (arXiv 2501.14816): horizontal-first canonical ordering, vertical runs jump to forced neighbors, horizontal moves are single steps. */
+	private runJps(budget: number): Position[] | null | undefined {
+		const window = this.searchWindow;
+		const { width: W, height: H } = window;
+		const { walls, g, state, from, base, startCell, goalCell } = this;
+		const closed = base + 1;
+		const goalX = goalCell % W;
+		const goalY = (goalCell - goalX) / W;
+		let scanned = 0;
+		let expanded = this.expanded;
+
+		while (this.heapSize > 0) {
+			const cell = this.entryCell[this.pop()];
+			if (state[cell] === closed) continue;
+			if (cell === goalCell) return this.rebuildJps(window, startCell, goalCell);
+			if (++expanded > budget) return null;
+
+			state[cell] = closed;
+			const x = cell % W;
+			const y = (cell - x) / W;
+			const arrival = from[cell];
+			for (let d = 0; d < 4; d++) {
+				let target = -1;
+				let steps = 1;
+				if ((d & 1) === 1) {
+					const nx = x + DX[d];
+					if (nx < 0 || nx >= W || walls[cell + DX[d]] !== 0) continue;
+					/** A horizontal move after a vertical one is only taken when the wall behind forces it (the parent's row there is closed). */
+					if (arrival === 4 || (arrival & 1) === 1 ? arrival === 4 || d === arrival : walls[cell + DX[d] - DY[arrival] * W] !== 0) target = cell + DX[d];
+				} else if (arrival === 4 || (arrival & 1) === 1 || d === arrival) {
+					const dy = DY[d];
+					for (let jy = y + dy; jy >= 0 && jy < H; jy += dy, steps++) {
+						const at = jy * W + x;
+						if (walls[at] !== 0) break;
+						if (at === goalCell || (x > 0 && walls[at - 1] === 0 && walls[at - 1 - dy * W] !== 0) || (x < W - 1 && walls[at + 1] === 0 && walls[at + 1 - dy * W] !== 0)) { target = at; break; }
+					}
+					scanned += steps;
+				}
+				if (target < 0) continue;
+				const seen = state[target];
+				const next = g[cell] + steps;
+				if (seen === closed || (seen === base && next >= g[target])) continue;
+
+				g[target] = next;
+				state[target] = base;
+				from[target] = d;
+				const tx = target % W;
+				const h = Math.abs(tx - goalX) + Math.abs((target - tx) / W - goalY);
+				this.push(target, next + h, h);
+			}
+
+			if (scanned >= PathFinder.SLICE) {
+				this.expanded = expanded;
+				return undefined;
+			}
+		}
+		return null;
+	}
+
+	/** Walks back from each jump point one cell at a time to the cell whose cost is its own minus the steps taken: its parent. */
+	private rebuildJps(window: CellRect, startCell: number, goalCell: number): Position[] {
+		const { x: ox, y: oy, width: W } = window;
+		const { g, state, from, base } = this;
+		const path: Position[] = [];
+		const at = (cell: number): Position => {
+			const x = cell % W;
+			return { x: x + ox, y: (cell - x) / W + oy };
+		};
+		let cell = goalCell;
+		let cost = g[cell];
+		path.push(at(cell));
+		while (cell !== startCell) {
+			const back = DY[from[cell]] * W + DX[from[cell]];
+			do {
+				cell -= back;
+				cost--;
+				path.push(at(cell));
+			} while (state[cell] < base || g[cell] !== cost);
+		}
+		return path.reverse();
 	}
 
 	/**
@@ -339,7 +433,9 @@ export class PathFinder {
 	 * meeting is a shortest path: while a side expands a level the other frontier doesn't move, and a neighbor the other side reached must
 	 * be on its frontier (an expanded cell would already have reached the current one), so every meeting of that level has length
 	 * forward depth + 1 + backward depth. A frontier that runs out proves there is no path in the window. The backward side never enters a
-	 * wall and the goal is open, so a start on a wall meets from the forward side.
+	 * wall and the goal is open, so a start on a wall meets from the forward side. Alternating single cells instead of levels also gave
+	 * shortest paths on 1.2M random queries on small grids: the grid is bipartite, so a meeting can't be longer than the shortest path by one, and the
+	 * levels only make the argument independent of that.
 	 */
 	private runBidirectional(budget: number): Position[] | null | undefined {
 		const window = this.searchWindow;
