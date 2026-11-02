@@ -1,9 +1,12 @@
 import type p5 from 'p5';
 import type { Camera } from './Camera';
-import { CellType, COST } from './CellType';
+import { CellType, COST, MAX_COST } from './CellType';
 import type { Position, WallGrid } from './WallGrid';
 
 export class Player {
+	/** Same clamp as the pan step in `main.ts`: a slower frame doesn't make the player jump. */
+	private static readonly MAX_FRAME_MS = 100;
+
 	private x = 0;
 	private y = 0;
 	private speed: number;
@@ -41,15 +44,20 @@ export class Player {
 
 	/**
 	 * Entering a cell takes `1000 * COST[type] / (COST[GROUND] * speed)` ms, so the speed is in cells per second on open ground and a
-	 * highway is 4x faster. Time not spent on a step carries over to the next frame.
+	 * highway is 4x faster. Time not spent on a step carries over to the next frame, and a frame credits at most `MAX_FRAME_MS` of new time.
 	 */
 	update(p: p5, grid: WallGrid): void {
 		const last = (this.path.length >> 1) - 1;
 		if (last >= 0 && this.currentPathIndex < last) {
 			const now = p.millis();
-			let elapsed = now - this.lastMoveTime;
-			let index = this.currentPathIndex;
 			const msPerCost = 1000 / (COST[CellType.GROUND] * this.speed);
+			/**
+			 * The carry is under the longest step, so a frame of at most `MAX_FRAME_MS` stays under this cap and steps exactly. After a long
+			 * pause (hidden tab) the elapsed time is huge: it is cut so the loop doesn't walk the whole path, reading a type per cell, which
+			 * can generate chunks on the main thread.
+			 */
+			let elapsed = Math.min(now - this.lastMoveTime, Player.MAX_FRAME_MS + MAX_COST * msPerCost);
+			let index = this.currentPathIndex;
 
 			while (index < last) {
 				/** A wall drawn on the path after the search (cost 0) is walked at the cheapest pace until the path is cut. */
