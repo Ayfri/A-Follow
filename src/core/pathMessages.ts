@@ -27,7 +27,12 @@ export interface GenerateRequest {
 	generation: Generation;
 }
 
-export type WorkerRequest = GridMessage | FindRequest | GenerateRequest;
+/** Stops the running search at its next slice: the main thread answered the request itself. */
+export interface CancelRequest {
+	type: 'cancel';
+}
+
+export type WorkerRequest = GridMessage | FindRequest | GenerateRequest | CancelRequest;
 
 /**
  * `path` holds (x, y) pairs and is null when there is no path. A typed array is transferred for free, where cloning a Position[]
@@ -48,4 +53,10 @@ export interface GenerateResult {
 	cells: Uint8Array<ArrayBuffer>;
 }
 
-export type WorkerResponse = FindResult | GenerateResult;
+/** A generation that threw: its id is answered so the caller doesn't wait for cells that never come. A failed search is answered with `path: null`. */
+export interface GenerateFailure {
+	type: 'failed';
+	id: number;
+}
+
+export type WorkerResponse = FindResult | GenerateResult | GenerateFailure;

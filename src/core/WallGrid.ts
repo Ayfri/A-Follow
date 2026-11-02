@@ -95,6 +95,24 @@ export class WallGrid {
 		this.observer?.cell(x, y, wall);
 	}
 
+	/** Index of the first cell of `path` ((x, y) pairs) from index `from` that is a wall, or -1. Consecutive cells share a chunk, so the lookup is kept across them. */
+	firstWall(path: Int32Array, from: number): number {
+		let chunk: Chunk | undefined;
+		let cx = Number.NaN;
+		let cy = Number.NaN;
+		for (let i = from; 2 * i < path.length; i++) {
+			const x = path[2 * i];
+			const y = path[2 * i + 1];
+			if (x >> CHUNK_BITS !== cx || y >> CHUNK_BITS !== cy) {
+				cx = x >> CHUNK_BITS;
+				cy = y >> CHUNK_BITS;
+				chunk = this.chunks.get(WallGrid.key(cx, cy));
+			}
+			if (chunk !== undefined && chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)] === 1) return i;
+		}
+		return -1;
+	}
+
 	/** Writes `rect` row-major into `out[0..area)` (1 = wall); bytes past the area are untouched. */
 	copyWalls(rect: CellRect, out: Uint8Array): void {
 		out.fill(0, 0, rect.width * rect.height);

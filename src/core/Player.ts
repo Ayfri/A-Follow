@@ -26,6 +26,11 @@ export class Player {
 		this.currentPathIndex = 0;
 	}
 
+	/** Keeps the first `count` cells of the path (more than the player's index, which stays valid). */
+	truncate(count: number): void {
+		this.path = this.path.subarray(0, 2 * count);
+	}
+
 	update(p: p5): void {
 		const last = (this.path.length >> 1) - 1;
 		if (last >= 0 && this.currentPathIndex < last) {

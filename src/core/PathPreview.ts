@@ -1,7 +1,7 @@
 import type { Camera } from './Camera';
 import { GridSync } from './GridSync';
 import { PathFinder } from './PathFinder';
-import type { FindRequest, FindResult, GenerateRequest, Generation, WorkerResponse } from './pathMessages';
+import type { CancelRequest, FindRequest, FindResult, GenerateRequest, Generation, WorkerResponse } from './pathMessages';
 import type { Player } from './Player';
 import type { CellRect, Position, WallGrid } from './WallGrid';
 
@@ -27,6 +27,8 @@ export class PathPreview {
 	/** Where the pending request starts: the player's cell then, and its index on the path it was walking. */
 	private requestStart: Position = { x: 0, y: 0 };
 	private requestIndex = 0;
+	/** Grid revision the player's path is known to be free of walls for (the cells ahead of the player are checked when the grid moves past it). */
+	private pathRevision = -1;
 	/** The only fill whose result is still wanted, with the function that settles its promise. */
 	private generation: { id: number; settle: () => void } | null = null;
 
@@ -44,9 +46,16 @@ export class PathPreview {
 			const pending = this.generation;
 			if (pending === null || pending.id !== message.id) return;
 			this.generation = null;
-			this.grid.writeRect(message.rect, message.cells);
+			if (message.type === 'generated') this.grid.writeRect(message.rect, message.cells);
 			pending.settle();
 		});
+		/** A dead worker answers nothing: nothing waits for it any more, so the fill buttons come back and no search stays pending. */
+		const abandon = (): void => {
+			this.pendingId = null;
+			this.cancelGeneration();
+		};
+		this.worker.addEventListener('error', abandon);
+		this.worker.addEventListener('messageerror', abandon);
 	}
 
 	/** Replaces `rect` with a generated maze or random grid: resolves once the worker's cells are written, or when `cancelGeneration` drops them. */
@@ -74,6 +83,13 @@ export class PathPreview {
 		this.sync.flush();
 		this.receive(player);
 
+		/** The player walks its path while a request is pending, so walls drawn or generated since the path was computed must stop it. */
+		if (this.pathRevision !== this.grid.revision) {
+			const wall = this.grid.firstWall(player.getPath(), player.getPathIndex() + 1);
+			if (wall >= 0) player.truncate(wall);
+			this.pathRevision = this.grid.revision;
+		}
+
 		const target = hovered ?? this.target;
 		if (target === null) return;
 
@@ -90,8 +106,10 @@ export class PathPreview {
 		const window = PathFinder.window(view, start, target);
 		const near = window && this.finder.findNear(this.grid, start, target, window, snap);
 		if (window === null || near !== null) {
+			if (this.pendingId !== null) this.worker.postMessage({ type: 'cancel' } satisfies CancelRequest);
 			this.pendingId = null;
 			player.setPath(PathFinder.pack(near ?? []));
+			this.pathRevision = this.revision;
 			return;
 		}
 
@@ -120,6 +138,8 @@ export class PathPreview {
 			player.setPath(new Int32Array(0));
 			return;
 		}
+		/** The result is valid for the walls of its request, which `update` checks against the walls now. */
+		this.pathRevision = this.revision;
 
 		const { x: startX, y: startY } = this.requestStart;
 		const walkedAfterStart = player.getPath().subarray(2 * (this.requestIndex + 1), 2 * (player.getPathIndex() + 1));
