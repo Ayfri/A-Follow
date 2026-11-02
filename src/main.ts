@@ -75,7 +75,7 @@ const sketch = (p: p5) => {
 		grid.evict(camera.visibleRect(), WallGrid.MAX_CACHED_CHUNKS);
 		p.background(theme.background);
 		const ctx = p.drawingContext as CanvasRenderingContext2D;
-		renderer.drawWalls(ctx, camera, theme.wall);
+		renderer.drawCells(ctx, camera, theme);
 
 		pathPreview.update(player,hovering ? camera.cellAt(p.mouseX, p.mouseY) : null, camera.visibleRect(), sidebar.snapToNearest);
 		pathPreview.draw(ctx, camera, player, theme.path);
@@ -83,7 +83,7 @@ const sketch = (p: p5) => {
 		if (sidebar.showGrid) renderer.drawLines(ctx, camera, theme.grid);
 
 		player.draw(p, camera, theme.player);
-		player.update(p);
+		player.update(p, grid);
 
 		const wanted = pan ? 'grabbing' : sidebar.build && !held.has('Space') ? 'crosshair' : 'grab';
 		if (wanted !== cursor) {

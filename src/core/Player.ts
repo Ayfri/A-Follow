@@ -1,6 +1,7 @@
 import type p5 from 'p5';
 import type { Camera } from './Camera';
-import type { Position } from './WallGrid';
+import { CellType, COST } from './CellType';
+import type { Position, WallGrid } from './WallGrid';
 
 export class Player {
 	private x = 0;
@@ -38,19 +39,31 @@ export class Player {
 		this.path = this.path.subarray(0, 2 * count);
 	}
 
-	update(p: p5): void {
+	/**
+	 * Entering a cell takes `1000 * COST[type] / (COST[GROUND] * speed)` ms, so the speed is in cells per second on open ground and a
+	 * highway is 4x faster. Time not spent on a step carries over to the next frame.
+	 */
+	update(p: p5, grid: WallGrid): void {
 		const last = (this.path.length >> 1) - 1;
 		if (last >= 0 && this.currentPathIndex < last) {
 			const now = p.millis();
-			const elapsed = now - this.lastMoveTime;
-			const moveInterval = 1000 / this.speed;
-			const steps = Math.floor(elapsed / moveInterval);
+			let elapsed = now - this.lastMoveTime;
+			let index = this.currentPathIndex;
+			const msPerCost = 1000 / (COST[CellType.GROUND] * this.speed);
 
-			if (steps > 0) {
-				this.currentPathIndex = Math.min(this.currentPathIndex + steps, last);
-				this.x = this.path[2 * this.currentPathIndex];
-				this.y = this.path[2 * this.currentPathIndex + 1];
-				this.lastMoveTime = now - (elapsed % moveInterval);
+			while (index < last) {
+				/** A wall drawn on the path after the search (cost 0) is walked at the cheapest pace until the path is cut. */
+				const interval = Math.max(1, COST[grid.typeAt(this.path[2 * index + 2], this.path[2 * index + 3])]) * msPerCost;
+				if (elapsed < interval) break;
+				elapsed -= interval;
+				index++;
+			}
+
+			if (index !== this.currentPathIndex) {
+				this.currentPathIndex = index;
+				this.x = this.path[2 * index];
+				this.y = this.path[2 * index + 1];
+				this.lastMoveTime = now - elapsed;
 			}
 		} else {
 			this.lastMoveTime = p.millis();

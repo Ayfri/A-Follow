@@ -1,5 +1,6 @@
 import type { Camera } from './Camera';
 import { CellType, TYPE_COUNT } from './CellType';
+import type { ColorTheme } from './Theme';
 import { CHUNK_BITS, CHUNK_SIZE, type Chunk, WallGrid } from './WallGrid';
 
 /** A chunk rendered to its own canvas, one pixel per cell, valid while `version` matches the chunk's. */
@@ -13,7 +14,7 @@ interface CachedChunk {
 	cy: number;
 }
 
-/** Draws walls from per-chunk canvases that are repacked only when their chunk changes, and the grid lines on top. */
+/** Draws every cell type from per-chunk canvases that are repacked only when their chunk or the theme changes, and the grid lines on top. */
 export class GridRenderer {
 	/**
 	 * Grid lines fade with the on-screen cell size: at 10 px and up a 1 px line covers at most a tenth of the cell;
@@ -36,22 +37,41 @@ export class GridRenderer {
 	 */
 	private static readonly GENERATE_BUDGET_MS = 4;
 
+	/** Theme color of each type with a fill. GROUND (the background shows through) and the unused types stay transparent. */
+	private static readonly FILLS: readonly (readonly [type: CellType, color: keyof ColorTheme])[] = [
+		[CellType.WALL, 'wall'],
+		[CellType.STREET, 'street'],
+		[CellType.AVENUE, 'avenue'],
+		[CellType.HIGHWAY, 'highway'],
+		[CellType.BRIDGE, 'bridge'],
+		[CellType.PLAZA, 'plaza'],
+		[CellType.PARK, 'park'],
+		[CellType.FIELD, 'field'],
+		[CellType.FOREST, 'forest'],
+		[CellType.BUILDING, 'building'],
+		[CellType.WATER, 'water']
+	];
+
 	private readonly grid: WallGrid;
 	private readonly cache = new Map<number, CachedChunk>();
 	private readonly image = new ImageData(CHUNK_SIZE, CHUNK_SIZE);
 	private readonly pixels = new Uint32Array(this.image.data.buffer);
-	/** Packed pixel of each cell type, 0 (transparent) for the types without a color. */
+	/** Packed pixel of each cell type the chunks were last packed with, 0 (transparent) for the types without a color. */
 	private readonly palette = new Uint32Array(TYPE_COUNT);
-	private color = '';
+	/** The palette of the current frame, compared with `palette` to find a theme change. */
+	private readonly next = new Uint32Array(TYPE_COUNT);
 
 	constructor(grid: WallGrid) {
 		this.grid = grid;
 	}
 
-	drawWalls(ctx: CanvasRenderingContext2D, camera: Camera, color: string): void {
-		if (color !== this.color) {
-			this.color = color;
-			this.palette[CellType.WALL] = GridRenderer.packColor(color);
+	drawCells(ctx: CanvasRenderingContext2D, camera: Camera, theme: ColorTheme): void {
+		const { palette, next } = this;
+		for (const [type, color] of GridRenderer.FILLS) next[type] = GridRenderer.packColor(theme[color]);
+		let changed = false;
+		for (let type = 0; type < TYPE_COUNT; type++) changed ||= next[type] !== palette[type];
+		if (changed) {
+			palette.set(next);
 			/** Entries are marked stale instead of dropped: dragging a color picker fires many changes and would recreate every canvas each time. */
 			for (const entry of this.cache.values()) entry.version = -1;
 		}
@@ -98,7 +118,7 @@ export class GridRenderer {
 					entry.version = -1;
 				}
 				if (entry.version !== chunk.version && (!repacked || performance.now() < deadline)) {
-					const { pixels, palette } = this;
+					const { pixels } = this;
 					for (let i = 0; i < pixels.length; i++) pixels[i] = palette[chunk.cells[i]];
 					entry.context.putImageData(this.image, 0, 0);
 					entry.version = chunk.version;
