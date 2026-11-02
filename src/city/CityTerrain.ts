@@ -31,7 +31,7 @@ export class CityTerrain implements Terrain {
 		this.countryside = new Countryside(seed, this.relief);
 		this.water = new Water(seed, this.relief);
 		this.towns = new Towns(seed, this.water, this.relief);
-		this.fabric = new Fabric(this.towns);
+		this.fabric = new Fabric(this.towns, seed);
 		this.roads = new Roads(this.towns, this.water, this.relief);
 		this.ribbons = new Ribbons(this.roads, this.towns);
 	}

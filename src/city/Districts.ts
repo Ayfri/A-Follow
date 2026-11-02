@@ -1,4 +1,4 @@
-import { type Frame, FrameKind, FrameView } from './Frame';
+import { type Frame, FrameKind, FrameView, WarpSet } from './Frame';
 import { hash, Salt, unit } from './hash';
 import { type Town, TownKind, type Towns } from './Towns';
 
@@ -34,7 +34,10 @@ const RING_SPREAD = 0.0875;
 const KEEP_AXIS_SHARE = 0.3;
 const AVENUE_WIDTH = 2;
 
-/** Ranges of the block sizes of a style, in cells: `blockB` is `blockA` times 0.6 to 1.6 when `ratio`. */
+/**
+ * Ranges of the block sizes of a style, in cells: `blockB` is `blockA` times 0.6 to 1.6 when `ratio`. A WARP style bends its lines by
+ * `warp` cells with the noise of `warpSet`, and `drop` is the share of its street segments that are left out of the suburbs.
+ */
 interface Style {
 	minA: number;
 	spanA: number;
@@ -42,14 +45,35 @@ interface Style {
 	spanB: number;
 	ratio: boolean;
 	avenueEvery: number;
+	kind: FrameKind;
+	warp: number;
+	warpSet: 0 | 1;
+	drop: number;
+	culDeSac: boolean;
 }
 
-const PLAN_STYLE: Style = { minA: 18, spanA: 12, minB: 0, spanB: 0, ratio: true, avenueEvery: 4 };
-const CBD_STYLE: Style = { minA: 28, spanA: 9, minB: 28, spanB: 9, ratio: false, avenueEvery: 4 };
-const ORGANIC_STYLE: Style = { minA: 10, spanA: 7, minB: 10, spanB: 7, ratio: false, avenueEvery: 6 };
-const SPRAWL_STYLE: Style = { minA: 28, spanA: 13, minB: 12, spanB: 7, ratio: false, avenueEvery: 5 };
-/** The cross streets are close (family A runs across the axis), the long streets along the axis are far apart. */
-const LINEAR_STYLE: Style = { minA: 14, spanA: 9, minB: 40, spanB: 21, ratio: false, avenueEvery: 4 };
+/**
+ * Share of the street segments between two crossings that are left out of the suburbs: dead ends and missing links make a grid look grown.
+ * A planned town loses 12%, an organic quarter 18% and a sprawl 28%, whose dropped segments leave a cul-de-sac. The share grows toward
+ * the border of the town (`EDGE_DROP_SHARE` in `Fabric`), where the outer streets fray into pieces. Over 108 towns the largest piece
+ * holds at least 94.2% of an organic town's roads and 91.7% of a sprawl's; 35% left one sprawl at 89.1%, under the 90% of the tests.
+ */
+const GRID_DROP = 0.12;
+const ORGANIC_DROP = 0.18;
+const SPRAWL_DROP = 0.28;
+/** Organic lanes wobble by 9 cells over 56, a sprawl sweeps by 24 over 140: the 0.16 and 0.17 of their period stay under the 0.18 fold limit of `WarpSet`. */
+const ORGANIC_WARP = 9;
+const SPRAWL_WARP = 24;
+
+const PLAN_STYLE: Style = { minA: 18, spanA: 12, minB: 0, spanB: 0, ratio: true, avenueEvery: 4, kind: FrameKind.GRID, warp: 0, warpSet: 0, drop: GRID_DROP, culDeSac: false };
+const CBD_STYLE: Style = { minA: 28, spanA: 9, minB: 28, spanB: 9, ratio: false, avenueEvery: 4, kind: FrameKind.GRID, warp: 0, warpSet: 0, drop: GRID_DROP, culDeSac: false };
+const ORGANIC_STYLE: Style = { minA: 10, spanA: 7, minB: 10, spanB: 7, ratio: false, avenueEvery: 6, kind: FrameKind.WARP, warp: ORGANIC_WARP, warpSet: 0, drop: ORGANIC_DROP, culDeSac: false };
+const SPRAWL_STYLE: Style = { minA: 28, spanA: 13, minB: 12, spanB: 7, ratio: false, avenueEvery: 5, kind: FrameKind.WARP, warp: SPRAWL_WARP, warpSet: 1, drop: SPRAWL_DROP, culDeSac: true };
+/**
+ * The cross streets are close (family A runs across the axis), the long streets along the axis are far apart. Nothing is dropped: the few
+ * long streets are the whole network of the town, and with 12% dropped a village lost whole streets (88.8% of its roads joined, under 90%).
+ */
+const LINEAR_STYLE: Style = { minA: 14, spanA: 9, minB: 40, spanB: 21, ratio: false, avenueEvery: 4, kind: FrameKind.GRID, warp: 0, warpSet: 0, drop: 0, culDeSac: false };
 
 /** Ids of the hashes of one frame, so the parameters of a district are independent. */
 const Param = { ANGLE: 0, SPRAWL: 1, KEEP: 2, BLOCK_A: 3, BLOCK_B: 4, PHASE_A: 5, PHASE_B: 6 } as const;
@@ -70,12 +94,19 @@ export interface District {
  */
 export class Districts {
 	private readonly towns: Towns;
+	private readonly warps: readonly [WarpSet, WarpSet];
 	private entries: District[] = [];
 	/** Whether the last `locate` cell is within the boundary avenue of its district. */
 	boundary = false;
 
-	constructor(towns: Towns) {
+	constructor(towns: Towns, seed: number) {
 		this.towns = towns;
+		this.warps = [new WarpSet(seed, 0), new WarpSet(seed, 1)];
+	}
+
+	/** The view of a district frame over the tile; a WARP frame reads the warp fields of its set, which are filled once per tile whatever the number of towns. */
+	private view(frame: Frame, x0: number, y0: number, size: number): FrameView {
+		return new FrameView(frame, x0, y0, size, frame.kind === FrameKind.WARP ? this.warps[frame.warpSet] : null);
 	}
 
 	/** Builds the districts that can own a cell of the `size` x `size` tile at (x0, y0): the seeds of the squares around it, pruned to the candidates. */
@@ -84,7 +115,7 @@ export class Districts {
 		const entries: District[] = [];
 		this.entries = entries;
 		if (side === 0) {
-			entries.push({ slot: 0, sx: town.x, sy: town.y, view: new FrameView(this.frameOf(town, 0, 0, town.x, town.y), x0, y0, size) });
+			entries.push({ slot: 0, sx: town.x, sy: town.y, view: this.view(this.frameOf(town, 0, 0, town.x, town.y), x0, y0, size) });
 			return;
 		}
 
@@ -111,7 +142,7 @@ export class Districts {
 		}
 		for (const seed of seeds) {
 			if (seed.near > reach + CANDIDATE_MARGIN) continue;
-			entries.push({ slot: entries.length, sx: seed.sx, sy: seed.sy, view: new FrameView(this.frameOf(town, seed.i, seed.j, seed.sx, seed.sy), x0, y0, size) });
+			entries.push({ slot: entries.length, sx: seed.sx, sy: seed.sy, view: this.view(this.frameOf(town, seed.i, seed.j, seed.sx, seed.sy), x0, y0, size) });
 		}
 	}
 
@@ -182,7 +213,7 @@ export class Districts {
 		const blockA = style.minA + (param(Param.BLOCK_A) % style.spanA);
 		const blockB = style.ratio ? Math.round(blockA * (0.6 + unit(param(Param.BLOCK_B)))) : style.minB + (param(Param.BLOCK_B) % style.spanB);
 		return {
-			kind: FrameKind.GRID,
+			kind: style.kind,
 			ox: sx,
 			oy: sy,
 			c,
@@ -197,6 +228,10 @@ export class Districts {
 			jitterB: blockB >> 3,
 			avenueEvery: style.avenueEvery,
 			avenueWidth: AVENUE_WIDTH,
+			warp: style.warp,
+			warpSet: style.warpSet,
+			drop: style.drop,
+			culDeSac: style.culDeSac,
 			key,
 		};
 	}

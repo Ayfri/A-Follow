@@ -1,6 +1,6 @@
 import { CellType } from '../core/CellType';
 import { CBD_LEVEL, type District, Districts } from './Districts';
-import { frameX, frameY, type FrameView, Line } from './Frame';
+import { FrameKind, frameX, frameY, type FrameView, Line } from './Frame';
 import { hash, Salt, unit } from './hash';
 import { DOWNTOWN_LEVEL, INNER_LEVEL, type Town, Towns } from './Towns';
 
@@ -44,6 +44,10 @@ const MIN_BUILDING = 3;
  */
 const EDGE_EMPTY = 0.5;
 const FRINGE_LEVEL = 0.12;
+/** Extra share of street segments dropped at the very border of a town, fading to nothing at `INNER_LEVEL`: the grid frays into dead ends instead of ending on a line. */
+const EDGE_DROP_SHARE = 0.5;
+/** A dropped segment of a cul-de-sac frame keeps this share of its length from one end, chosen by the hash of the segment. */
+const CUL_KEEP = 0.45;
 /** The plaza at the center of a town is a disc of this radius plus `PLAZA_PER_TIER` for every tier. */
 const PLAZA_RADIUS = 8;
 const PLAZA_PER_TIER = 4;
@@ -65,10 +69,11 @@ interface Block {
  * It paints every cell a town owns, in this order, the first match winning: the avenue on a district boundary, a street or an avenue of the
  * frame of the district, water (left alone), the plaza at the center of the town, then the block of the cell, as a park, a plaza or the
  * lots of the block with their buildings. Rock (mask code 3) is left alone. Streets stop at the water; avenues bridge a river and stop at
- * the sea and at a lake, where a bridge would be hundreds of cells long.
+ * the sea and at a lake, where a bridge would be hundreds of cells long. A street segment that is dropped is open ground.
  *
- * A cell only reads its owner, the nine seeds around it and the lines of its frame, and a block is a pure function of its frame key and
- * its numbers, so a tile of any size and origin gives the same cells as a part of a bigger tile.
+ * A cell only reads its owner, the nine seeds around it, the lines of its frame and, in a warped frame, the warp fields at itself and the
+ * cell after it; a block is a pure function of its frame key and its numbers, so a tile of any size and origin gives the same cells as a
+ * part of a bigger tile.
  */
 export class Fabric {
 	private readonly towns: Towns;
@@ -86,10 +91,11 @@ export class Fabric {
 	private zone: Zone = SUBURB;
 	private blockId = 0;
 	private aligned = false;
+	private warped = false;
 
-	constructor(towns: Towns) {
+	constructor(towns: Towns, seed: number) {
 		this.towns = towns;
-		this.districts = new Districts(towns);
+		this.districts = new Districts(towns, seed);
 	}
 
 	/** Paints the towns near the `size` x `size` tile at (x0, y0); `mask` is the water mask of `Water.fill` with 3 on rock. */
@@ -134,15 +140,40 @@ export class Fabric {
 					else if (wet === 1) out[i] = CellType.BRIDGE;
 				} else if (wet !== 0) {
 					continue;
-				} else if (line === Line.STREET) {
+				} else if (line === Line.STREET && !this.dropped(town, view, level)) {
 					out[i] = CellType.STREET;
 				} else if ((x - town.x) * (x - town.x) + (y - town.y) * (y - town.y) < plaza * plaza) {
 					out[i] = CellType.PLAZA;
 				} else {
-					out[i] = this.content(town, district, x, y);
+					out[i] = line === Line.STREET ? CellType.GROUND : this.content(town, district, x, y);
 				}
 			}
 		}
+	}
+
+	/**
+	 * Whether the street cell of `view` belongs to a dropped segment: the part of a street between two cross streets, whose roll is fixed and
+	 * is compared with a share that grows toward the border of the town, so a segment can end halfway. The cells of a crossing are kept (both
+	 * families on a street), so the streets on both sides of a dropped segment stay joined to the grid. Downtown keeps every street. The
+	 * dropped cells are open ground; a cul-de-sac frame keeps the first `CUL_KEEP` of the segment from the end that a bit of the hash picks.
+	 */
+	private dropped(town: Town, view: FrameView, level: number): boolean {
+		const { frame } = view;
+		if (frame.drop === 0 || (town.tier > 0 && level > DOWNTOWN_LEVEL)) return false;
+		let h: number;
+		let along: number;
+		if (view.lineA === Line.STREET && view.lineB === Line.NONE) {
+			h = hash(frame.key, view.hitA, view.kb, Salt.SEGMENT_DROP_A);
+			along = view.v / view.height;
+		} else if (view.lineB === Line.STREET && view.lineA === Line.NONE) {
+			h = hash(frame.key, view.hitB, view.ka, Salt.SEGMENT_DROP_B);
+			along = view.u / view.width;
+		} else {
+			return false;
+		}
+		if (unit(h) >= frame.drop + (level < INNER_LEVEL ? EDGE_DROP_SHARE * (1 - level / INNER_LEVEL) : 0)) return false;
+		if (!frame.culDeSac) return true;
+		return (h & 1) === 0 ? along >= CUL_KEEP : 1 - along >= CUL_KEEP;
 	}
 
 	/** What stands on the ground cell (x, y) of a block: a park (with trees), a plaza, a building or nothing. */
@@ -200,6 +231,7 @@ export class Fabric {
 			this.zone = zone;
 			this.blockId = id;
 			this.aligned = frame.aligned;
+			this.warped = frame.kind === FrameKind.WARP;
 			this.split(0, 0, Math.floor(view.width), Math.floor(view.height));
 			block.count = this.rectCount - block.start / 4;
 		}
@@ -229,7 +261,10 @@ export class Fabric {
 	/**
 	 * Adds the building of the lot at (x, y) of the block, if any. On a rotated frame every building keeps a yard of at least 1 on each
 	 * side, so two buildings are 2 units apart: a gap of 2 units is at least `sqrt(2)` cells across at any angle, which keeps the yards
-	 * between the buildings 4-connected. On an axis-aligned frame a downtown building can touch its street.
+	 * between the buildings 4-connected. On a warped frame the warp stretches the units: `a` changes by up to 1.54 between cells that share
+	 * an edge and 2.49 between cells that touch at a corner (`|c| + |s|` of the grid, at most 1.414, plus 0.54 of warp per axis), so two
+	 * buildings 2 units apart can still touch at a corner. The yard on the high side is 2, a gap of 3, which no pair of cells crosses. On an axis-aligned frame a downtown
+	 * building can touch its street.
 	 */
 	private lot(x: number, y: number, w: number, h: number): void {
 		const { town, view, zone } = this;
@@ -245,13 +280,14 @@ export class Fabric {
 		if (unit(roll) < zone.empty + (suburb ? EDGE_EMPTY * fade : 0)) return;
 
 		const floor = this.aligned ? 0 : 1;
+		const least = this.warped ? 2 : 1;
 		const extra = suburb ? ((roll >>> 8) & 1) + (level < FRINGE_LEVEL ? 1 : 0) : 0;
 		const tightest = Math.max(zone.tightest, floor);
 		let low = Math.max(zone.setback + extra, floor);
-		let high = Math.max(low, 1);
+		let high = Math.max(low, least);
 		while (low > tightest && Math.min(w, h) - low - high < MIN_BUILDING) {
 			low--;
-			high = Math.max(low, 1);
+			high = Math.max(low, least);
 		}
 		if (Math.min(w, h) - low - high < MIN_BUILDING) return;
 
