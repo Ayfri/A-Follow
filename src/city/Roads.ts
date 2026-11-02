@@ -40,7 +40,7 @@ const MAX_BEND = 300;
 const LEG = 64;
 /**
  * A town links to the first town found within this many regions east of it, and the same to the south. A metropolis keeps the regions
- * around it empty (`METRO_CLEAR`, about 2 regions), so a link from or to one reaches farther than the old 3 regions.
+ * around it empty (`METRO_CLEAR`, about 2 regions), so a link from or to one needs more than 3 regions, which left metropolises unlinked eastward.
  */
 const LINK_REGIONS = 5;
 const MAX_MEMO = 4096;

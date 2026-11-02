@@ -26,7 +26,7 @@ export interface Town {
 	/** Unit vector of the base street direction: along the shore of a harbor, along the river of a river town. */
 	axisX: number;
 	axisY: number;
-	/** 1, or 2.2 to 3.0 for a linear town: it is that many times longer along its axis than the circle of its radius, and as many times narrower across. */
+	/** 1, or 2.2 to 3.0 for a linear town: its ellipse is that many times longer than wide and has the area of the circle of its radius. */
 	stretch: number;
 	walled: boolean;
 }

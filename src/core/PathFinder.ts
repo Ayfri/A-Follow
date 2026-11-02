@@ -74,7 +74,7 @@ export class PathFinder {
 	/** A near window bigger than this is not searched: copying it would cost more than the attempt can save. */
 	static readonly NEAR_AREA = 1 << 17;
 	/**
-	 * In a generating world `findNear` generates the chunks its window misses on the calling thread (~0.8 ms each). A thin tall window under
+	 * In a generating world `findNear` generates the chunks its window misses on the calling thread (1.3 to 1.4 ms each on average, 0.5 ms away from the towns and 2.1 ms with a town in reach, up to 16 ms). A thin tall window under
 	 * `NEAR_AREA` spans up to 34 chunks, so one needing more than this many is left to the worker, which generates off the main thread.
 	 */
 	static readonly NEAR_MAX_GENERATED = 16;

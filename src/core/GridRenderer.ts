@@ -32,8 +32,9 @@ export class GridRenderer {
 	private static readonly REPACK_BUDGET_MS = 4;
 	/**
 	 * Time a frame may spend generating the visible chunks a generating world hasn't made yet, and at least one is generated per frame. A
-	 * chunk takes 0.7 to 0.9 ms on average with every layer, so a first view of ~130 chunks fills in ~25 frames instead of freezing one; a
-	 * chunk not generated yet shows the background.
+	 * chunk takes 1.3 to 1.4 ms on average with every layer (median 0.6 ms, p95 5.2 to 5.5 ms: 0.5 ms away from the towns, 2.1 ms with a town
+	 * in reach, up to 16 ms, and ~23 ms more on the first chunk of a fresh terrain for the road links), so a first view of ~130 chunks fills
+	 * in ~45 frames instead of freezing one; a chunk not generated yet shows the background.
 	 */
 	private static readonly GENERATE_BUDGET_MS = 4;
 
