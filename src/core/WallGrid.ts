@@ -160,6 +160,25 @@ export class WallGrid {
 		return BLOCKED[chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)]] === 1;
 	}
 
+	/**
+	 * Cell that doesn't block movement and is the closest to `from` in Chebyshev distance within `radius`, or null. Rings are scanned
+	 * outward, top row then bottom row then the two sides, so the answer is deterministic. It generates the chunks it reads: radius 256
+	 * reaches at most 5 x 5 chunks around the cell.
+	 */
+	nearestPassable(from: Position, radius: number): Position | null {
+		for (let r = 0; r <= radius; r++) {
+			for (let d = -r; d <= r; d++) {
+				if (!this.isWall(from.x + d, from.y - r)) return { x: from.x + d, y: from.y - r };
+				if (!this.isWall(from.x + d, from.y + r)) return { x: from.x + d, y: from.y + r };
+			}
+			for (let d = 1 - r; d < r; d++) {
+				if (!this.isWall(from.x - r, from.y + d)) return { x: from.x - r, y: from.y + d };
+				if (!this.isWall(from.x + r, from.y + d)) return { x: from.x + r, y: from.y + d };
+			}
+		}
+		return null;
+	}
+
 	typeAt(x: number, y: number): number {
 		const cx = x >> CHUNK_BITS;
 		const cy = y >> CHUNK_BITS;

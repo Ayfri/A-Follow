@@ -4,6 +4,7 @@ import { PathFinder } from './PathFinder';
 import type { CancelRequest, FindRequest, FindResult, GenerateRequest, Generation, WorkerResponse } from './pathMessages';
 import type { Player } from './Player';
 import type { CellRect, Position, WallGrid } from './WallGrid';
+import type { World } from './World';
 
 /**
  * Path from the player to the target cell, recomputed only when the target cell, the walls or the snap option change.
@@ -12,6 +13,9 @@ import type { CellRect, Position, WallGrid } from './WallGrid';
  * The same worker builds mazes and random grids (`generate`), so a fill never blocks the page: the cells come back and are written here.
  */
 export class PathPreview {
+	/** How far a player on a blocked cell looks for an open one after a world change: at most 25 chunks to generate. */
+	private static readonly PLACE_RADIUS = 256;
+
 	private readonly grid: WallGrid;
 	private readonly finder = new PathFinder();
 	private readonly worker = new Worker(new URL('./pathWorker.ts', import.meta.url), { type: 'module' });
@@ -73,6 +77,21 @@ export class PathPreview {
 	cancelGeneration(): void {
 		this.generation?.settle();
 		this.generation = null;
+	}
+
+	/**
+	 * Switches the grid to `world` (edits are dropped) and moves the player to the nearest passable cell, with no path. The pending search
+	 * and fill are dropped here: the grid's revision bump alone can't cancel them, since the new world's chunks don't exist yet to cut the
+	 * old path at. The world message goes through the grid's sync like any edit, so it stays in order with the ones before and after it.
+	 */
+	setWorld(world: World, player: Player): void {
+		if (this.pendingId !== null) this.worker.postMessage({ type: 'cancel' } satisfies CancelRequest);
+		this.pendingId = null;
+		this.arrived = null;
+		this.cancelGeneration();
+		this.grid.setWorld(world);
+		const { x, y } = this.grid.nearestPassable(player.getPosition(), PathPreview.PLACE_RADIUS) ?? player.getPosition();
+		player.place(x, y);
 	}
 
 	/**

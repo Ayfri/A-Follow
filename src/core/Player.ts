@@ -26,6 +26,13 @@ export class Player {
 		this.currentPathIndex = 0;
 	}
 
+	/** Moves the player to a cell and drops its path. */
+	place(x: number, y: number): void {
+		this.x = x;
+		this.y = y;
+		this.setPath(new Int32Array(0));
+	}
+
 	/** Keeps the first `count` cells of the path (more than the player's index, which stays valid). */
 	truncate(count: number): void {
 		this.path = this.path.subarray(0, 2 * count);
