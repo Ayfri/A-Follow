@@ -1,15 +1,17 @@
 # AFollow
 
-AFollow is an interactive A* pathfinding sandbox built with p5.js. You draw walls on an infinite grid, move the mouse, and a player walks the shortest path to the cell under the cursor, around everything you built.
+AFollow is an interactive A* pathfinding sandbox built with p5.js. You draw walls on an infinite, procedurally generated city, move the mouse, and a player walks the cheapest path to the cell under the cursor, around everything you built. Roads are fast, fields and forests are slow, buildings and water block.
 
 Live demo: [afollow.ayfri.com](https://afollow.ayfri.com/)
 
 ## Features
 
-- **Infinite grid**: pan in any direction, there are no world bounds. Walls are stored in sparse 128 x 128 chunks, and a chunk without walls takes no memory.
-- **Chunk-cached rendering**: each chunk is drawn to its own canvas and repacked only when its walls change, so a frame costs one image draw per visible chunk.
+- **Infinite city**: pan in any direction, there are no world bounds. Rivers, lakes, towns with street grids, highways, bridges, parks, plazas, buildings, fields and forests are generated from a seed, chunk by chunk, as you look at them. An empty world without terrain is one toggle away.
+- **Terrain costs**: every cell type has a cost to enter it. The player walks 4 times faster on a highway than on open ground and the path search minimizes the total cost, not the number of cells.
+- **Weighted and unit-cost searches**: a bucket-queue A* handles mixed costs, and A*, JPS4 or a bidirectional search handle windows with a single passable type. All run in a worker, so a long path never freezes the page, and a target that is walled in is rejected without searching.
+- **Your walls on top**: left drag draws walls over any cell, right drag erases your own walls and brings back the generated terrain.
+- **Chunk-cached rendering**: each chunk is drawn to its own canvas and repacked only when its cells change, so a frame costs one image draw per visible chunk.
 - **Build mode**: toggle it with `B`. With build mode off, a left drag pans instead of drawing.
-- **Shortest paths in a bounded window**: A*, JPS4 or a bidirectional search, picked from the wall density, over the visible area plus a margin. It runs in a worker, so a long path never freezes the page, and a target that is walled in is rejected without searching.
 - **Smooth zoom**: the wheel zooms from 25% to 400% around the cursor with an eased animation.
 - **Maze and random grid generators** that fill the visible area, built in the path worker.
 - **Themes and settings** saved in localStorage, with a collapsible sidebar.
@@ -20,7 +22,7 @@ Live demo: [afollow.ayfri.com](https://afollow.ayfri.com/)
 | --- | --- |
 | `B` | Toggle build mode |
 | Left drag | Draw walls (build mode on) or pan (build mode off) |
-| Right drag | Erase walls (build mode on) |
+| Right drag | Erase your walls (build mode on) |
 | `Shift` + drag | Draw or erase a straight line |
 | Middle drag | Pan |
 | `Space` + left drag | Pan |
@@ -36,50 +38,108 @@ Every setting below is saved in localStorage, except the zoom, which starts at 1
 | Section | Setting | Range or default |
 | --- | --- | --- |
 | Mode | Build | On |
-| Player | Speed | 1 to 5000 cells/s on a log scale, default step 8 (about 4.6 cells/s) |
+| Player | Speed | 1 to 5000 cells/s on a log scale, default step 8 (about 4.6 cells/s). It is the speed on open ground: other cells scale with their cost. |
 | Grid | Cell Size | 3 to 60 px, default 20 px |
 | Grid | Show grid lines | On. Lines fade out as cells shrink below 10 px and disappear at 4 px. |
 | Grid | Snap to nearest tile | Off. A wall target is replaced by the nearest open cell. |
+| World | City | On. Off gives the empty world, where every cell is ground. |
+| World | Seed | 0 to 4294967295, default 1. The same seed gives the same city. |
+| World | New seed | Picks a random seed |
 | Maze | Generate Maze | Replaces the visible area with a random maze |
 | Maze | Wall Probability | 5% to 60% in steps of 2.5%, default 20% |
 | Maze | Random Grid | Replaces the visible area with random walls at that probability |
-| Maze | Clear | Removes every wall of the grid |
+| Maze | Clear | Removes every wall you drew, and the city returns where a maze or a random grid replaced it |
 | Camera | Zoom | 25% to 400%, follows the wheel |
 | Camera | Reset view | Centers the camera on the player at zoom 100% |
-| Theme | Background, Wall, Path, Grid Lines, Player | One color picker each |
+| Theme | Ground (background), Wall, Path, Grid Lines, Player | One color picker each |
+| Theme | Street, Avenue, Highway, Bridge, Plaza, Park, Field, Forest, Building, Water | One color picker each |
 
-Generate Maze and Random Grid act on the visible area, including the part under the sidebar. Walls outside it stay as they are. The path worker builds the cells, so the page stays responsive on a large view: both buttons are disabled until the fill is written, and Clear cancels a fill that is still pending. Clear acts on the whole grid.
+Changing the city toggle or the seed drops every edit, cancels the pending search and moves the player to the nearest passable cell. The app opens in the city of the saved seed.
+
+Generate Maze and Random Grid act on the visible area, including the part under the sidebar. In the city they flatten it: the area becomes ground and walls, so buildings, roads and water there disappear until Clear. Cells outside the area stay as they are. The path worker builds the cells, so the page stays responsive on a large view: both buttons are disabled until the fill is written, and Clear cancels a fill that is still pending. Clear acts on the whole grid.
 
 ## How it works
 
-### Chunks
+### Cell types and costs
 
-The grid is a map from chunk coordinates to a 128 x 128 `Uint8Array` (1 is a wall). Cells are int32 and a chunk key packs both chunk coordinates into one number, so lookups allocate nothing. A chunk that loses its last wall is deleted. Each chunk carries a version stamp taken from the grid revision at its last change, and the renderer repacks a chunk's canvas only when the stamps differ. A frame spends at most about 4 ms repacking (and always repacks at least one chunk), so after a fill or a color change a stale chunk keeps its old picture until its turn and the whole view settles over a few frames instead of in one long one.
+A cell is one byte holding a type. A wall is one blocked type among several. Entering a cell costs its type's cost (the start cell is free), and a cost of 0 blocks it.
+
+| Type | Cost | Blocked |
+| --- | --- | --- |
+| Ground | 4 | no |
+| Wall (yours) | 0 | yes |
+| Street | 2 | no |
+| Avenue | 1 | no |
+| Highway | 1 | no |
+| Bridge | 1 | no |
+| Plaza | 2 | no |
+| Park | 3 | no |
+| Field | 5 | no |
+| Forest | 8 | no |
+| Building | 0 | yes |
+| Water | 0 | yes |
+
+Ground costs 4 times the cheapest road, which bounds how misleading the search heuristic can be. Highways and avenues share the cost and differ in width and color.
+
+The player takes `1000 * cost / (4 * speed)` ms to enter a cell, so the speed setting is in cells per second on open ground and a highway is walked 4 times faster. In the empty world every cell is ground and the stepping is `1000 / speed` ms per cell.
+
+### Chunks, base and edits
+
+The grid is a map from chunk coordinates to a 128 x 128 `Uint8Array` of cell types. A chunk key packs both chunk coordinates into one number, so lookups allocate nothing. Each chunk carries a histogram of its types, a count of blocked cells and a version stamp taken from the grid revision at its last change. The renderer repacks a chunk's canvas only when the stamps differ. A frame spends at most about 4 ms repacking (and always repacks at least one chunk), so after a fill or a color change the whole view settles over a few frames instead of in one long one.
+
+The generated city is the base. Your edits are tracked per chunk: the first edit marks the chunk as edited, and from then on it is kept. Reading a cell is always one array index, with no second lookup for the edits. Erasing restores the generated type of the cell (the base of an edited chunk is computed on the first erase). Generated buildings and water can't be erased, only covered by your walls. In the empty world a chunk with only ground is deleted.
+
+### Lazy generation and eviction
+
+The terrain is a pure function of the seed and the cell position, so a chunk is generated when it is first read and an unedited chunk can be dropped and rebuilt with the same bytes. Generation takes about 0.7 to 0.9 ms per chunk on average (p95 about 1.3 to 1.8 ms). It never changes the grid revision and notifies nobody, since the content is the same on every thread.
+
+- **Renderer**: it generates the visible chunks that are still missing, within 4 ms per frame (and at least one per frame). A chunk not generated yet shows the ground color for a frame or two.
+- **Cache bound**: unedited chunks are capped at 2048 (32 MB). Above that, the oldest ones outside the view are evicted down to 1024, so the scan does not run every frame. Edited chunks are never evicted, so memory grows only with your edits.
+
+### Generation layers
+
+Each layer is a pure function of the seed, painted over the previous ones, and a tile of any size and origin gets the same cells as a part of a bigger tile.
+
+1. **Countryside**: forests from value noise, and farmland zones cut into hedged field parcels with the odd farmstead.
+2. **Water**: rivers (contour lines of a warped noise, so they never end) and lakes.
+3. **Towns**: one per 512 x 512 region with probability 0.6, as villages, towns or cities of growing radius, with an irregular outline. Their ground replaces fields and forests.
+4. **Blocks**: the space between street lines is split into lots with buildings, parks and plazas, by zone (downtown, inner, suburbs). Buildings make 3.2 to 3.6% of the cells.
+5. **Streets**: a jittered grid per town with an avenue every 4th line, some suburban segments dropped.
+6. **Roads**: highways between towns, country roads for the small ones, with bridges where they cross water. The largest connected component holds 98.7 to 99.3% of the road cells.
+7. **Ribbon houses**: houses along the country roads near the towns they link.
 
 ### Window and budget
 
-The path search runs on a window made of the visible area grown by 16 cells on every side, extended to contain the player and the target. A window side is capped at 4096 cells and its area at 2^23 cells (above that the longer side shrinks to fit). A player and a target too far apart to share a window have no path. The walls of the window are copied once into a flat buffer, so the search loop never touches the chunk map.
+The path search runs on a window made of the visible area grown by 16 cells on every side, extended to contain the player and the target. A window side is capped at 4096 cells and its area at 2^23 cells (above that the longer side shrinks to fit). A player and a target too far apart to share a window have no path. The cells of the window are copied once into a flat buffer, so the search loop never touches the chunk map.
 
 The search has no node budget on the full window, so it always gives the exact answer, and it runs off the main thread:
 
-- **Small attempt on the main thread**: a target near the player is answered on the spot by a search on a small window (32 cells around the two points) that stops after 4096 expanded nodes. Its path is kept only when no path leaving that small window can be shorter. Otherwise the target goes to the worker.
-- **Path worker**: it searches the whole window on its own copy of the walls, which receives every wall change from the main thread in order. Only the newest request is kept: an older one that has not started is dropped, and one that has started is abandoned at its next slice. A search runs in slices of 50,000 expanded nodes (50,000 scanned cells for JPS4), which take 2 to 18 ms depending on the search, so a newer request is seen quickly. When the main thread answers a request itself, it tells the worker to drop the running search. The player keeps walking its old path until the result arrives, then joins the new one. Walls drawn or generated meanwhile cut the old path right before the first wall ahead, so the player stops there instead of walking through it, and a result that was computed before a wall change is cut the same way.
+- **Small attempt on the main thread**: a target near the player is answered on the spot by a search on a small window (32 cells around the two points) that stops after 4096 expanded nodes. Its path is kept only when no path leaving that small window can cost less, using the cheapest cost in the full window. Otherwise the target goes to the worker. In the city, roads make the cheapest cost 1, so fewer targets are answered here and more go to the worker.
+- **Path worker**: it searches the whole window on its own copy of the edits. It never receives generated cells: the main thread sends the world (kind and seed) once per world change, and the worker generates its own chunks from the seed. Only your edits are sent, in order. Before a search it evicts unedited chunks outside the window beyond the cache bound, then generates the missing chunks of the window in slices of 8 ms, so a newer request is seen between slices. Generating the largest window (8.4M cells, 512 chunks) takes about 0.4 s. Only the newest request is kept: an older one that has not started is dropped, and one that has started is abandoned at its next slice. A search runs in slices of 50,000 expanded nodes (50,000 scanned cells for JPS4). When the main thread answers a request itself, it tells the worker to drop the running search. The player keeps walking its old path until the result arrives, then joins the new one. Walls drawn or generated meanwhile cut the old path right before the first blocked cell ahead, so the player stops there instead of walking through it, and a result that was computed before an edit is cut the same way.
 
 ### Connectivity check
 
-Before it searches, the worker checks that the target can be reached at all. Each chunk is labeled by its connected regions of open cells (computed when the chunk is first needed and again when its version changes), and a union-find joins the regions that touch across chunk borders. A chunk that does not exist is one open region. When the player and the target are in different regions, there is no path inside the window and the answer is "no path" without searching.
+Before it searches, the worker checks that the target can be reached at all. Each chunk is labeled by its connected regions of passable cells (computed when the chunk is first needed and again when its version changes, which includes a chunk regenerated after eviction), and a union-find joins the regions that touch across chunk borders. In the empty world a chunk that does not exist is one open region; in the city the whole window is generated before the check. When the player and the target are in different regions, there is no path inside the window and the answer is "no path" without searching.
 
 The check only proves that there is no path. Labels cover whole chunks, including the cells of an edge chunk that lie outside the window, so it can say "connected" when the only route runs through those cells: the search then runs and finds nothing. It never rejects a reachable target, and on a window aligned to chunk borders it is exact. A target walled in on a 2240 x 1265 grid is rejected in about 50 ms the first time and about 1 ms after a wall change, against about 1.5 s for scanning the window with A*. With snap on, a wall target needs the nearest open cell first, so the window is copied before the check.
 
-### A*, JPS4 and bidirectional search
+### Unit searches and the weighted search
 
-The search moves on 4 neighbors and always returns a shortest path. A* uses a Manhattan heuristic, with an open set that is a binary heap ordered by total cost, then by heuristic cost, then by insertion order. The full-window search picks one of three searches from the wall density of the window's chunks:
+The search moves on 4 neighbors and always returns a cheapest path. A window whose chunks can only hold one passable type (the empty world, a maze, a random grid, ground next to water) uses the unit-cost searches, where the cheapest path is the shortest one. Any window that can hold two passable types, like roads next to ground, uses the weighted search.
 
-- **A*** below 3% walls, where it is hard to beat (an open window takes about 5 ms with A* and 70 ms with JPS4).
+**Unit searches** pick one of three from the wall density of the window's chunks:
+
+- **A*** below 3% walls, where it is hard to beat (an open window takes about 5 ms with A* and 70 ms with JPS4). Its heuristic is Manhattan distance and its open set is a binary heap ordered by total cost, then by heuristic cost, then by insertion order.
 - **JPS4** from 3% to 36%: jump point search for 4-connected grids ([arXiv 2501.14816](https://arxiv.org/abs/2501.14816)). It prunes symmetric paths with a horizontal-first ordering and jumps along vertical runs to the next cell with a forced neighbor, so the open set stays small. On random grids of 5% to 35% walls it is 1.3 to 1.6 times faster than A* or the bidirectional search, whichever is faster there.
 - **Bidirectional breadth-first search** from 36% walls and on mazes, about 2 to 2.5 times faster than A* there (a 2240 x 1265 maze took about 100 ms with A* and 40 to 60 ms with it). It expands one full level of the side with the smaller frontier each turn, and a side that runs out of cells proves there is no path.
 
-The small attempt on the main thread always uses A*. Equal-cost paths resolve the same way on every run (neighbors are taken up, right, down, left), but the three searches can return different shortest paths. When the player and the target share a row or a column with no wall between them, the straight path is returned without copying the window. With snap on, a wall target is replaced by the nearest open cell found with a breadth-first search inside the window. The path is only recomputed when the target cell, the walls or the snap option change.
+A window of one passable type other than ground (a flattened area next to streets only, for example) is copied through the blocked table, so the unit searches still apply.
+
+**Weighted search**: A* over a bucket queue (Dial) on the integer costs. The heuristic is the cheapest cost of the window times the Manhattan distance, which is consistent, so the queue needs only 32 buckets in a ring and an entry costs 8 bytes. Equal-cost entries come out last in, first out, so a run is deterministic. Its result matches a reference Dijkstra on random mixed grids, in cost and in reachability.
+
+Far searches in large mixed-cost city windows are the slow case: they take up to about 0.7 s in the worker, because ground costs 4 times the cheapest road and the heuristic only knows the cheapest cost. Unit-cost searches stay as fast as before. The slices keep the page responsive meanwhile, and a newer request abandons the running search at its next slice.
+
+Equal-cost paths resolve the same way on every run (neighbors are taken up, right, down, left), but the searches can return different cheapest paths. When the player and the target share a row or a column and every cell between them costs the cheapest cost of the window, the straight path is returned without copying the window. With snap on, a wall target is replaced by the nearest open cell found with a breadth-first search inside the window. The path is only recomputed when the target cell, the edits or the snap option change.
 
 ## Getting started
 
