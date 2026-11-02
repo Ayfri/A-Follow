@@ -1,7 +1,8 @@
+import { BLOCKED } from './CellType';
 import { CHUNK_BITS, CHUNK_SIZE } from './WallGrid';
 import type { CellRect, Chunk, Position, WallGrid } from './WallGrid';
 
-/** Component of each cell of a chunk, 1-based, 0 on a wall. */
+/** Component of each cell of a chunk, 1-based, 0 on a blocked cell (any type that blocks movement). */
 interface ChunkLabels {
 	version: number;
 	count: number;
@@ -159,7 +160,7 @@ export class Connectivity {
 		let count = 0;
 
 		for (let i = 0; i < CELLS; i++) {
-			if (cells[i] !== 0) {
+			if (BLOCKED[cells[i]] !== 0) {
 				labels[i] = 0;
 				continue;
 			}

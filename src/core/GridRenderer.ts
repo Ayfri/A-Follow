@@ -1,4 +1,5 @@
 import type { Camera } from './Camera';
+import { CellType, TYPE_COUNT } from './CellType';
 import { CHUNK_BITS, CHUNK_SIZE, type Chunk, WallGrid } from './WallGrid';
 
 /** A chunk rendered to its own canvas, one pixel per cell, valid while `version` matches the chunk's. */
@@ -23,9 +24,9 @@ export class GridRenderer {
 	/**
 	 * Time a frame may spend repacking stale chunks, and at least one is repacked per frame so the picture always converges. A fill that
 	 * made ~130 chunks stale (1456 x 822 window, 3 px cells, zoom 25%) repacked them all in one frame of 59 to 98 ms in the browser, about
-	 * 0.5 ms per chunk, of which the cell loop is 0.04 ms in V8 (0.10 to 0.12 ms with a branch per cell, hence the multiplication) and the
-	 * rest is `putImageData` and the canvas upload. A stale chunk keeps drawing its old picture until its turn, and a chunk that is new draws
-	 * empty: a fill appears over a few frames, and a color change shows both colors until every chunk is repacked.
+	 * 0.5 ms per chunk, of which the cell loop is 0.04 ms in V8 (0.10 to 0.12 ms with a branch per cell, hence a color table indexed by cell
+	 * type: one load per cell, no branch) and the rest is `putImageData` and the canvas upload. A stale chunk keeps drawing its old picture
+	 * until its turn, and a chunk that is new draws empty: a fill appears over a few frames, and a color change shows both colors until every chunk is repacked.
 	 */
 	private static readonly REPACK_BUDGET_MS = 4;
 
@@ -33,8 +34,9 @@ export class GridRenderer {
 	private readonly cache = new Map<number, CachedChunk>();
 	private readonly image = new ImageData(CHUNK_SIZE, CHUNK_SIZE);
 	private readonly pixels = new Uint32Array(this.image.data.buffer);
+	/** Packed pixel of each cell type, 0 (transparent) for the types without a color. */
+	private readonly palette = new Uint32Array(TYPE_COUNT);
 	private color = '';
-	private packed = 0;
 
 	constructor(grid: WallGrid) {
 		this.grid = grid;
@@ -43,7 +45,7 @@ export class GridRenderer {
 	drawWalls(ctx: CanvasRenderingContext2D, camera: Camera, color: string): void {
 		if (color !== this.color) {
 			this.color = color;
-			this.packed = GridRenderer.packColor(color);
+			this.palette[CellType.WALL] = GridRenderer.packColor(color);
 			/** Entries are marked stale instead of dropped: dragging a color picker fires many changes and would recreate every canvas each time. */
 			for (const entry of this.cache.values()) entry.version = -1;
 		}
@@ -83,8 +85,8 @@ export class GridRenderer {
 					entry.version = -1;
 				}
 				if (entry.version !== chunk.version && (!repacked || performance.now() < deadline)) {
-					const { pixels, packed } = this;
-					for (let i = 0; i < pixels.length; i++) pixels[i] = chunk.cells[i] * packed;
+					const { pixels, palette } = this;
+					for (let i = 0; i < pixels.length; i++) pixels[i] = palette[chunk.cells[i]];
 					entry.context.putImageData(this.image, 0, 0);
 					entry.version = chunk.version;
 					repacked = true;

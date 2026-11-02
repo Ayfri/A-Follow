@@ -1,3 +1,5 @@
+import { BLOCKED, CellType, TYPE_COUNT } from './CellType';
+
 export interface Position {
 	x: number;
 	y: number;
@@ -19,6 +21,7 @@ export const CHUNK_BITS = 7;
 export const CHUNK_SIZE = 1 << CHUNK_BITS;
 /** With `>> CHUNK_BITS` (floors negatives) and `& CHUNK_MASK` (wraps them), any int32 cell maps to its chunk and its slot in it. */
 const CHUNK_MASK = CHUNK_SIZE - 1;
+const CHUNK_CELLS = CHUNK_SIZE * CHUNK_SIZE;
 
 /** Cells are int32, so chunk coordinates fit 25 signed bits. */
 const COORD_BIAS = 2 ** 24;
@@ -37,14 +40,22 @@ export interface WallObserver {
 }
 
 export class Chunk {
-	readonly cells = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+	/** One `CellType` byte per cell. */
+	readonly cells = new Uint8Array(CHUNK_CELLS);
+	/** Number of cells of each type, kept in step with `cells`. */
+	readonly counts = new Uint16Array(TYPE_COUNT);
+	/** Cells whose type blocks movement, whatever the type. */
 	walls = 0;
 	/** Grid revision at the last change, so a recreated chunk is always newer than the one it replaces. */
 	version = 0;
+
+	constructor() {
+		this.counts[CellType.GROUND] = CHUNK_CELLS;
+	}
 }
 
 /**
- * Unbounded wall grid stored in sparse chunks (1 = wall); a chunk without walls is deleted.
+ * Unbounded grid of cell types (see `CellType`) stored in sparse chunks; a chunk of only ground is deleted.
  * Coordinates are int32 and not clamped: at the fastest arrow pan (~533 cells/s) reaching the limit takes ~46 days.
  */
 export class WallGrid {
@@ -69,33 +80,44 @@ export class WallGrid {
 		return this.chunks.get(WallGrid.key(cx, cy));
 	}
 
+	/** True when the cell blocks movement: a wall, but also any other blocked type. */
 	isWall(x: number, y: number): boolean {
 		const chunk = this.chunks.get(WallGrid.key(x >> CHUNK_BITS, y >> CHUNK_BITS));
-		return chunk !== undefined && chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)] === 1;
+		return chunk !== undefined && BLOCKED[chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)]] === 1;
 	}
 
+	typeAt(x: number, y: number): number {
+		const chunk = this.chunks.get(WallGrid.key(x >> CHUNK_BITS, y >> CHUNK_BITS));
+		return chunk === undefined ? CellType.GROUND : chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)];
+	}
+
+	/** Sets the cell to WALL or GROUND, replacing any other type. */
 	setWall(x: number, y: number, wall: boolean): void {
 		const key = WallGrid.key(x >> CHUNK_BITS, y >> CHUNK_BITS);
 		const index = ((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK);
+		const target = wall ? CellType.WALL : CellType.GROUND;
 		let chunk = this.chunks.get(key);
 
 		if (chunk === undefined) {
 			if (!wall) return;
 			chunk = new Chunk();
 			this.chunks.set(key, chunk);
-		} else if ((chunk.cells[index] === 1) === wall) {
+		} else if (chunk.cells[index] === target) {
 			return;
 		}
 
-		chunk.cells[index] = wall ? 1 : 0;
-		chunk.walls += wall ? 1 : -1;
+		const previous = chunk.cells[index];
+		chunk.cells[index] = target;
+		chunk.counts[previous]--;
+		chunk.counts[target]++;
+		chunk.walls += BLOCKED[target] - BLOCKED[previous];
 		this.rev++;
-		if (chunk.walls === 0) this.chunks.delete(key);
+		if (chunk.counts[CellType.GROUND] === CHUNK_CELLS) this.chunks.delete(key);
 		else chunk.version = this.rev;
 		this.observer?.cell(x, y, wall);
 	}
 
-	/** Index of the first cell of `path` ((x, y) pairs) from index `from` that is a wall, or -1. Consecutive cells share a chunk, so the lookup is kept across them. */
+	/** Index of the first cell of `path` ((x, y) pairs) from index `from` that blocks movement, or -1. Consecutive cells share a chunk, so the lookup is kept across them. */
 	firstWall(path: Int32Array, from: number): number {
 		let chunk: Chunk | undefined;
 		let cx = Number.NaN;
@@ -108,20 +130,28 @@ export class WallGrid {
 				cy = y >> CHUNK_BITS;
 				chunk = this.chunks.get(WallGrid.key(cx, cy));
 			}
-			if (chunk !== undefined && chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)] === 1) return i;
+			if (chunk !== undefined && BLOCKED[chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)]] === 1) return i;
 		}
 		return -1;
 	}
 
-	/** Writes `rect` row-major into `out[0..area)` (1 = wall); bytes past the area are untouched. */
-	copyWalls(rect: CellRect, out: Uint8Array): void {
-		out.fill(0, 0, rect.width * rect.height);
+	/**
+	 * Writes `rect` row-major into `out[0..area)`; bytes past the area are untouched. Without `table` the output holds the raw
+	 * `CellType` bytes, otherwise each byte is translated through `table` (indexed by type, such as `BLOCKED` or `COST`).
+	 */
+	copyWalls(rect: CellRect, out: Uint8Array, table: Uint8Array | null = null): void {
+		out.fill(table === null ? CellType.GROUND : table[CellType.GROUND], 0, rect.width * rect.height);
 		this.forEachChunkIn(rect, (cx, cy, x0, y0, x1, y1) => {
 			const chunk = this.chunkAt(cx, cy);
 			if (chunk === undefined) return;
 			for (let y = y0; y < y1; y++) {
 				const from = ((y & CHUNK_MASK) << CHUNK_BITS) | (x0 & CHUNK_MASK);
-				out.set(chunk.cells.subarray(from, from + x1 - x0), (y - rect.y) * rect.width + x0 - rect.x);
+				const to = (y - rect.y) * rect.width + x0 - rect.x;
+				if (table === null) {
+					out.set(chunk.cells.subarray(from, from + x1 - x0), to);
+				} else {
+					for (let k = 0, n = x1 - x0; k < n; k++) out[to + k] = table[chunk.cells[from + k]];
+				}
 			}
 		});
 	}
@@ -206,21 +236,21 @@ export class WallGrid {
 		}
 	}
 
-	/** Overwrites `rect` with `cells` (row-major, 1 = wall); a missing chunk is only created when its part of the rect has a wall. */
+	/** Overwrites `rect` with `cells` (row-major `CellType` bytes); a missing chunk is only created when its part of the rect has a non-ground cell. */
 	writeRect(rect: CellRect, cells: Uint8Array<ArrayBuffer>): void {
 		this.forEachChunkIn(rect, (cx, cy, x0, y0, x1, y1) => {
 			const key = WallGrid.key(cx, cy);
 			let chunk = this.chunks.get(key);
 
 			if (chunk === undefined) {
-				let hasWall = false;
-				for (let y = y0; y < y1 && !hasWall; y++) {
+				let hasTerrain = false;
+				for (let y = y0; y < y1 && !hasTerrain; y++) {
 					const row = (y - rect.y) * rect.width - rect.x;
 					for (let x = x0; x < x1; x++) {
-						if (cells[row + x] === 1) { hasWall = true; break; }
+						if (cells[row + x] !== CellType.GROUND) { hasTerrain = true; break; }
 					}
 				}
-				if (!hasWall) return;
+				if (!hasTerrain) return;
 				chunk = new Chunk();
 				this.chunks.set(key, chunk);
 			}
@@ -230,10 +260,13 @@ export class WallGrid {
 				chunk.cells.set(cells.subarray(from, from + x1 - x0), ((y & CHUNK_MASK) << CHUNK_BITS) | (x0 & CHUNK_MASK));
 			}
 
+			const { counts } = chunk;
+			counts.fill(0);
+			for (let i = 0; i < chunk.cells.length; i++) counts[chunk.cells[i]]++;
 			let walls = 0;
-			for (let i = 0; i < chunk.cells.length; i++) walls += chunk.cells[i];
+			for (let type = 0; type < TYPE_COUNT; type++) walls += BLOCKED[type] * counts[type];
 			chunk.walls = walls;
-			if (walls === 0) this.chunks.delete(key);
+			if (counts[CellType.GROUND] === CHUNK_CELLS) this.chunks.delete(key);
 			else chunk.version = this.rev + 1;
 		});
 		this.rev++;
