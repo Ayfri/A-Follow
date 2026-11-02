@@ -76,8 +76,12 @@ export class PathFinder {
 	/**
 	 * In a generating world `findNear` generates the chunks its window misses on the calling thread (1.3 to 1.4 ms each on average, 0.5 ms away from the towns and 2.1 ms with a town in reach, up to 16 ms). A thin tall window under
 	 * `NEAR_AREA` spans up to 34 chunks, so one needing more than this many is left to the worker, which generates off the main thread.
+	 * Measured on the metropolis of seed 1 (14779, 2491) with every chunk missing before each of 300 calls (targets 10 to 300 cells away, 2 rounds,
+	 * Bun): the worst call is 65 to 72 ms at 16, 35 to 39 ms at 8, 29 to 39 ms at 6, 16 to 18 ms at 4 and 13 to 20 ms at 2 (a call generates
+	 * the target's chunk before this check, so a single chunk can take 10 ms or more there); the share answered on the spot is 29.3% at 16 and at 8,
+	 * 29.0% at 6, 26.3% at 4 and 24.3% at 2, since most windows that need more chunks are too long for the budget anyway.
 	 */
-	static readonly NEAR_MAX_GENERATED = 16;
+	static readonly NEAR_MAX_GENERATED = 4;
 	/**
 	 * Wall densities (see `stats`) that pick the search of a query without a given kind on a window with one passable type: A* below
 	 * `JPS_DENSITY`, JPS4 from there up to `BFS_DENSITY`, the bidirectional search from there. A window with several passable types takes the
