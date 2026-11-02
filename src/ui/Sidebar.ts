@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Eraser, type IconNode, LocateFixed, Route, Shuffle } from 'lucide';
+import { ChevronLeft, ChevronRight, Dices, Eraser, type IconNode, LocateFixed, Route, Shuffle } from 'lucide';
 import { Camera } from '../core/Camera';
 import type { Generation } from '../core/pathMessages';
 import type { PathPreview } from '../core/PathPreview';
@@ -8,6 +8,7 @@ import type { WallGrid } from '../core/WallGrid';
 import { Setting } from '../utils/Setting';
 import { Button } from './Button';
 import { ColorField } from './fields/ColorField';
+import { NumberField } from './fields/NumberField';
 import { RangeField } from './fields/RangeField';
 import { ToggleField } from './fields/ToggleField';
 import { Tabs } from './Tabs';
@@ -36,18 +37,40 @@ const formatSpeed = (index: number): string => {
 	return `${text} cells/s`;
 };
 
-const THEME_COLORS: readonly { key: keyof ColorTheme; storage: string; label: string }[] = [
-	{ key: 'background', storage: 'background', label: 'Background' },
+interface ThemeColor {
+	key: keyof ColorTheme;
+	storage: string;
+	label: string;
+}
+
+/** The storage key `background` predates the terrain colors: the background is now the ground color, and keeps its saved value. */
+const THEME_COLORS: readonly ThemeColor[] = [
+	{ key: 'background', storage: 'background', label: 'Ground (background)' },
 	{ key: 'wall', storage: 'wall', label: 'Wall' },
 	{ key: 'path', storage: 'path', label: 'Path' },
 	{ key: 'grid', storage: 'grid', label: 'Grid Lines' },
 	{ key: 'player', storage: 'player', label: 'Player' }
 ];
 
+const TERRAIN_COLORS: readonly ThemeColor[] = [
+	{ key: 'street', storage: 'street', label: 'Street' },
+	{ key: 'avenue', storage: 'avenue', label: 'Avenue' },
+	{ key: 'highway', storage: 'highway', label: 'Highway' },
+	{ key: 'bridge', storage: 'bridge', label: 'Bridge' },
+	{ key: 'plaza', storage: 'plaza', label: 'Plaza' },
+	{ key: 'park', storage: 'park', label: 'Park' },
+	{ key: 'field', storage: 'field', label: 'Field' },
+	{ key: 'forest', storage: 'forest', label: 'Forest' },
+	{ key: 'building', storage: 'building', label: 'Building' },
+	{ key: 'water', storage: 'water', label: 'Water' }
+];
+
+const MAX_SEED = 2 ** 32 - 1;
+
 const HINTS: readonly (readonly [keys: readonly string[], action: string])[] = [
 	[['B'], 'Toggle build mode'],
 	[['Left drag'], 'Draw walls, or pan when not building'],
-	[['Right drag'], 'Erase walls'],
+	[['Right drag'], 'Erase your walls'],
 	[['Shift + drag'], 'Straight line'],
 	[['Middle drag', 'Space + drag', 'Arrows'], 'Pan'],
 	[['Wheel'], 'Zoom']
@@ -57,9 +80,15 @@ const TAB_KEYS: ReadonlySet<string> = new Set(['ArrowLeft', 'ArrowRight', 'Home'
 const RANGE_KEYS: ReadonlySet<string> = new Set([...TAB_KEYS, 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown']);
 const ACTIVATION_KEYS: ReadonlySet<string> = new Set([' ', 'Enter']);
 
-/** A control keeps only the keys it uses (sliders: arrows and paging, switches and buttons: Space and Enter), the rest reaches p5. */
+/**
+ * A control keeps only the keys it uses (sliders: arrows and paging, switches and buttons: Space and Enter), the rest reaches p5.
+ * A number input keeps every key: digits, arrows and Backspace edit the value, and none of them may pan or toggle build mode.
+ */
 const consumed = ({ target, key }: KeyboardEvent): boolean => {
-	if (target instanceof HTMLInputElement) return (target.type === 'range' ? RANGE_KEYS : ACTIVATION_KEYS).has(key);
+	if (target instanceof HTMLInputElement) {
+		if (target.type === 'number') return true;
+		return (target.type === 'range' ? RANGE_KEYS : ACTIVATION_KEYS).has(key);
+	}
 	if (target instanceof HTMLButtonElement) return ACTIVATION_KEYS.has(key) || (target.role === 'tab' && TAB_KEYS.has(key));
 	return false;
 };
@@ -70,12 +99,16 @@ export class Sidebar {
 	private readonly buildToggle: ToggleField;
 	private readonly gridToggle: ToggleField;
 	private readonly snapToggle: ToggleField;
+	private readonly cityToggle: ToggleField;
+	private readonly seedField: NumberField;
 	private readonly zoom: RangeField;
 	private readonly collapseButton: Button;
 	private readonly inner: HTMLDivElement;
 	private readonly generateButtons: Button[] = [];
 	private collapsed = false;
 	private shownZoom = Number.NaN;
+	/** False while the fields restore their saved values: each restore calls `onChange`, which must not reset the world before all of them exist. */
+	private ready = false;
 
 	constructor(host: SidebarHost) {
 		this.host = host;
@@ -84,6 +117,14 @@ export class Sidebar {
 		this.buildToggle = new ToggleField({ label: 'Build', setting: Setting.boolean('build-mode', true) });
 		this.gridToggle = new ToggleField({ label: 'Show grid lines', setting: Setting.boolean('show-grid-color', true) });
 		this.snapToggle = new ToggleField({ label: 'Snap to nearest tile', setting: Setting.boolean('snap-to-nearest-tile', false) });
+		this.cityToggle = new ToggleField({ label: 'City', setting: Setting.boolean('world-city', true), onChange: () => this.applyWorld() });
+		this.seedField = new NumberField({
+			label: 'Seed',
+			setting: Setting.number('world-seed', 1),
+			min: 0,
+			max: MAX_SEED,
+			onChange: () => this.applyWorld()
+		});
 		this.zoom = new RangeField({
 			label: 'Zoom',
 			initial: 100,
@@ -114,6 +155,12 @@ export class Sidebar {
 		this.element.append(this.collapseButton.element, this.inner);
 		this.isolateEvents();
 		this.sync();
+
+		/** The app starts in the saved world: one reset after every field restored, then the view opens on the player. */
+		this.ready = true;
+		this.applyWorld();
+		const { x, y } = host.player.getPosition();
+		camera.centerOn(x, y);
 	}
 
 	get build(): boolean {
@@ -193,6 +240,11 @@ export class Sidebar {
 			Sidebar.section('Mode', this.buildToggle.element, hints),
 			Sidebar.section('Player', speed.element),
 			Sidebar.section('Grid', cellSize.element, this.gridToggle.element, this.snapToggle.element),
+			Sidebar.section('World',
+				this.cityToggle.element,
+				this.seedField.element,
+				new Button('New seed', () => this.seedField.apply(crypto.getRandomValues(new Uint32Array(1))[0]), { icon: Dices }).element
+			),
 			Sidebar.section('Maze',
 				this.generateButton('Generate Maze', Route, () => ({ kind: 'maze' })).element,
 				probability.element,
@@ -201,6 +253,12 @@ export class Sidebar {
 			),
 			Sidebar.section('Camera', this.zoom.element, resetView.element)
 		];
+	}
+
+	/** Drops every edit and switches the grid to the city of the seed field, or to the empty world when City is off. */
+	private applyWorld(): void {
+		if (!this.ready) return;
+		this.host.preview.setWorld(this.cityToggle.value ? { kind: 'city', seed: this.seedField.value } : { kind: 'empty' }, this.host.player);
 	}
 
 	/** Both generate buttons are disabled while a fill is pending, so a second click can't replace the first one mid-way. */
@@ -219,12 +277,12 @@ export class Sidebar {
 
 	private buildTheme(): Node[] {
 		const { theme } = this.host;
-		const fields = THEME_COLORS.map(({ key, storage, label }) => new ColorField({
+		const section = (title: string, colors: readonly ThemeColor[]): HTMLElement => Sidebar.section(title, ...colors.map(({ key, storage, label }) => new ColorField({
 			label,
 			setting: Setting.color(`${storage}-color`, theme[key]),
 			onChange: (color) => { theme[key] = color; }
-		}));
-		return [Sidebar.section('Theme Colors', ...fields.map((field) => field.element))];
+		}).element));
+		return [section('Theme Colors', THEME_COLORS), section('Terrain Colors', TERRAIN_COLORS)];
 	}
 
 	private toggleCollapse(): void {

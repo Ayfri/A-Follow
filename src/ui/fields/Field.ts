@@ -7,7 +7,7 @@ export type FieldOptions<T extends Primitive> = {
 	onChange?: (value: T) => void;
 } & ({ setting: Setting<T> } | { initial: T });
 
-type InputType = 'range' | 'checkbox' | 'color';
+type InputType = 'range' | 'checkbox' | 'color' | 'number';
 
 /** A labelled input that mirrors one value. Subclasses own the control details; `restore()` must be their constructor's last call. */
 export abstract class Field<T extends Primitive> {
