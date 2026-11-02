@@ -46,6 +46,10 @@ export class SampledField {
 	private readonly evaluate: (x: number, y: number) => number;
 	private readonly step: number;
 	private corners = new Float64Array(0);
+	private columns = 0;
+	/** Bounds of the lattice points of the last `sample`. */
+	lowest = 0;
+	highest = 0;
 
 	constructor(evaluate: (x: number, y: number) => number, step: number) {
 		this.evaluate = evaluate;
@@ -77,6 +81,15 @@ export class SampledField {
 
 	/** Writes the `size` x `size` tile at (x0, y0) into `out`, row-major, evaluating each lattice point once. */
 	fillTile(x0: number, y0: number, size: number, out: Float64Array): void {
+		this.sample(x0, y0, size);
+		this.interpolate(x0, y0, size, out);
+	}
+
+	/**
+	 * Evaluates the lattice points under the tile and keeps them for `interpolate`. Every interpolated value lies between the lowest and the
+	 * highest of them, so a caller can rule a tile out from `lowest` and `highest` alone, without touching its cells.
+	 */
+	sample(x0: number, y0: number, size: number): void {
 		const { step, evaluate } = this;
 		const gx0 = Math.floor(x0 / step);
 		const gy0 = Math.floor(y0 / step);
@@ -84,9 +97,26 @@ export class SampledField {
 		const rows = Math.floor((y0 + size - 1) / step) - gy0 + 2;
 		if (this.corners.length < columns * rows) this.corners = new Float64Array(columns * rows);
 		const { corners } = this;
+		let low = Infinity;
+		let high = -Infinity;
 		for (let j = 0; j < rows; j++) {
-			for (let i = 0; i < columns; i++) corners[j * columns + i] = evaluate((gx0 + i) * step, (gy0 + j) * step);
+			for (let i = 0; i < columns; i++) {
+				const v = evaluate((gx0 + i) * step, (gy0 + j) * step);
+				corners[j * columns + i] = v;
+				if (v < low) low = v;
+				if (v > high) high = v;
+			}
 		}
+		this.lowest = low;
+		this.highest = high;
+		this.columns = columns;
+	}
+
+	/** Writes the tile last passed to `sample`, which must be the same (x0, y0, size). */
+	interpolate(x0: number, y0: number, size: number, out: Float64Array): void {
+		const { step, corners, columns } = this;
+		const gx0 = Math.floor(x0 / step);
+		const gy0 = Math.floor(y0 / step);
 
 		for (let row = 0; row < size; row++) {
 			const y = y0 + row;
