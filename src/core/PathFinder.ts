@@ -66,6 +66,11 @@ export class PathFinder {
 	/** A near window bigger than this is not searched: copying it would cost more than the attempt can save. */
 	static readonly NEAR_AREA = 1 << 17;
 	/**
+	 * In a generating world `findNear` generates the chunks its window misses on the calling thread (~0.8 ms each). A thin tall window under
+	 * `NEAR_AREA` spans up to 34 chunks, so one needing more than this many is left to the worker, which generates off the main thread.
+	 */
+	static readonly NEAR_MAX_GENERATED = 16;
+	/**
 	 * Wall densities (see `stats`) that pick the search of a query without a given kind on a window with one passable type: A* below
 	 * `JPS_DENSITY`, JPS4 from there up to `BFS_DENSITY`, the bidirectional search from there. A window with several passable types takes the
 	 * weighted search whatever its density. Full-window queries 200+ apart on random grids of 2240 x 1265 and 2048 x 2048,
@@ -215,6 +220,7 @@ export class PathFinder {
 		if ((right - left) * (bottom - top) > PathFinder.NEAR_AREA) return null;
 
 		const near = { x: left, y: top, width: right - left, height: bottom - top };
+		if (grid.missingChunks(near) > PathFinder.NEAR_MAX_GENERATED) return null;
 		grid.ensure(near);
 		const passable = PathFinder.stats(grid, near).passable;
 		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET, (passable & (passable - 1)) === 0 ? 'astar' : 'weighted');

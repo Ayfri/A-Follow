@@ -124,6 +124,13 @@ export class WallGrid {
 		return this.chunks.get(key) ?? (this.terrain === null ? undefined : this.generate(this.terrain, cx, cy, key));
 	}
 
+	/** Number of chunks of `rect` that a generating world would have to generate; 0 in the Empty world, where a missing chunk is all ground. */
+	missingChunks(rect: CellRect): number {
+		let missing = 0;
+		if (this.terrain !== null) this.forEachChunkIn(rect, (cx, cy) => { if (!this.chunks.has(WallGrid.key(cx, cy))) missing++; });
+		return missing;
+	}
+
 	/** Generates every missing chunk of `rect`. A big rect takes a long time: `ensureSlices` is the form that lets a caller interleave other work. */
 	ensure(rect: CellRect): void {
 		if (this.terrain !== null) this.forEachChunkIn(rect, (cx, cy) => this.ensureChunk(cx, cy));
@@ -271,7 +278,11 @@ export class WallGrid {
 		chunk.walls = walls;
 	}
 
-	/** Index of the first cell of `path` ((x, y) pairs) from index `from` that blocks movement, or -1. Consecutive cells share a chunk, so the lookup is kept across them. */
+	/**
+	 * Index of the first cell of `path` ((x, y) pairs) from index `from` that blocks movement, or -1. Consecutive cells share a chunk, so the lookup is kept across them.
+	 * In a generating world it generates the missing chunks the path crosses: a missing chunk can hold generated buildings or water that a
+	 * `clear` brought back over a path computed while they were flattened, so skipping it would let the player walk through them.
+	 */
 	firstWall(path: Int32Array, from: number): number {
 		let chunk: Chunk | undefined;
 		let cx = Number.NaN;
@@ -282,7 +293,7 @@ export class WallGrid {
 			if (x >> CHUNK_BITS !== cx || y >> CHUNK_BITS !== cy) {
 				cx = x >> CHUNK_BITS;
 				cy = y >> CHUNK_BITS;
-				chunk = this.chunks.get(WallGrid.key(cx, cy));
+				chunk = this.ensureChunk(cx, cy);
 			}
 			if (chunk !== undefined && BLOCKED[chunk.cells[((y & CHUNK_MASK) << CHUNK_BITS) | (x & CHUNK_MASK)]] === 1) return i;
 		}
