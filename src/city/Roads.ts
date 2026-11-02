@@ -88,10 +88,14 @@ export class Roads {
 	private tileY = 0;
 	private tileSize = 0;
 	private roadType: number = CellType.AVENUE;
-	/** Bound once: the rasterizer calls it for every cell, with no allocation per call. A road bridges water and cuts through rock (a mountain pass). */
+	/**
+	 * Bound once: the rasterizer calls it for every cell, with no allocation per call. A road bridges water and cuts through rock (a mountain
+	 * pass). A country road leaves the highway under it alone: it would cut the ring road of a town, which the fabric painted before the roads.
+	 */
 	private readonly stamp = (i: number): void => {
 		const wet = this.mask[i];
-		this.target[i] = wet === 1 || wet === 2 ? CellType.BRIDGE : this.roadType;
+		if (wet === 1 || wet === 2) this.target[i] = CellType.BRIDGE;
+		else if (this.roadType !== CellType.AVENUE || this.target[i] !== CellType.HIGHWAY) this.target[i] = this.roadType;
 	};
 
 	constructor(towns: Towns, water: Water, relief: Relief) {

@@ -1,8 +1,9 @@
 import { CellType } from '../core/CellType';
 import { CBD_LEVEL, type District, Districts } from './Districts';
-import { FrameKind, frameX, frameY, type FrameView, Line } from './Frame';
+import { type CellView, FrameKind, Line } from './Frame';
 import { hash, Salt, unit } from './hash';
-import { DOWNTOWN_LEVEL, INNER_LEVEL, type Town, Towns } from './Towns';
+import { hasRingRoad, RING_ROAD_SHARE, RING_ROAD_WIDTH, radialFrame, PLAZA_SHARE } from './Radial';
+import { DOWNTOWN_LEVEL, INNER_LEVEL, type Town, TownKind, Towns } from './Towns';
 
 /** How a block is built: the biggest lot side before it is split, the yard around a building, and the share of lots left as empty yards. */
 interface Zone {
@@ -69,7 +70,8 @@ interface Block {
  * It paints every cell a town owns, in this order, the first match winning: the avenue on a district boundary, a street or an avenue of the
  * frame of the district, water (left alone), the plaza at the center of the town, then the block of the cell, as a park, a plaza or the
  * lots of the block with their buildings. Rock (mask code 3) is left alone. Streets stop at the water; avenues bridge a river and stop at
- * the sea and at a lake, where a bridge would be hundreds of cells long. A street segment that is dropped is open ground.
+ * the sea and at a lake, where a bridge would be hundreds of cells long. A street segment that is dropped is open ground. The hub of a
+ * radial town is its plaza, which takes its cells before the lines, and the ring road of a radial city or metropolis is painted last.
  *
  * A cell only reads its owner, the nine seeds around it, the lines of its frame and, in a warped frame, the warp fields at itself and the
  * cell after it; a block is a pure function of its frame key and its numbers, so a tile of any size and origin gives the same cells as a
@@ -87,7 +89,7 @@ export class Fabric {
 
 	/** The block being built. */
 	private town: Town | null = null;
-	private view: FrameView | null = null;
+	private view: CellView | null = null;
 	private zone: Zone = SUBURB;
 	private blockId = 0;
 	private aligned = false;
@@ -104,6 +106,38 @@ export class Fabric {
 		towns.prepare(x0, y0, size);
 		const { present } = towns;
 		for (let t = 0; t < present.length; t++) this.paintTown(present[t], x0, y0, size, out, mask);
+		for (let t = 0; t < present.length; t++) if (hasRingRoad(present[t])) this.paintRing(present[t], x0, y0, size, out, mask);
+	}
+
+	/**
+	 * The ring road of a town: a highway on the circle of radius `RING_ROAD_SHARE * radius` around its center, over everything the fabric
+	 * painted, rock included (a pass). It bridges a river and stops at the sea and at a lake, like an avenue. It does not look at the
+	 * town level, so a lobe that the border of the town leaves out does not cut it.
+	 */
+	private paintRing(town: Town, x0: number, y0: number, size: number, out: Uint8Array, mask: Uint8Array): void {
+		const ring = RING_ROAD_SHARE * town.radius;
+		const nearX = Math.max(x0 - town.x, 0, town.x - (x0 + size - 1));
+		const nearY = Math.max(y0 - town.y, 0, town.y - (y0 + size - 1));
+		const farX = Math.max(town.x - x0, x0 + size - 1 - town.x);
+		const farY = Math.max(town.y - y0, y0 + size - 1 - town.y);
+		/** A cell is on the road when `|r - R| < 3 * (|dx| + |dy|) / (2 r)`, which is under 2.13: the squared radius rules the others out with no root. */
+		const low = ring - RING_ROAD_WIDTH;
+		const high = ring + RING_ROAD_WIDTH;
+		if (farX * farX + farY * farY < low * low || nearX * nearX + nearY * nearY >= high * high) return;
+		for (let row = 0; row < size; row++) {
+			const dy = y0 + row - town.y;
+			for (let col = 0; col < size; col++) {
+				const dx = x0 + col - town.x;
+				const squared = dx * dx + dy * dy;
+				if (squared < low * low || squared >= high * high) continue;
+				const r = Math.sqrt(squared);
+				if (Math.abs(r - ring) >= (RING_ROAD_WIDTH * (Math.abs(dx) + Math.abs(dy))) / (2 * r)) continue;
+				const i = row * size + col;
+				const wet = mask[i];
+				if (wet === 0 || wet === 3) out[i] = CellType.HIGHWAY;
+				else if (wet === 1) out[i] = CellType.BRIDGE;
+			}
+		}
 	}
 
 	private paintTown(town: Town, x0: number, y0: number, size: number, out: Uint8Array, mask: Uint8Array): void {
@@ -111,7 +145,9 @@ export class Fabric {
 		const { shapes } = towns;
 		const shared = towns.present.length > 1;
 		const reach = Towns.reach(town);
-		const plaza = PLAZA_RADIUS + PLAZA_PER_TIER * town.tier;
+		/** The plaza of a radial town is the hub of its spokes: it takes its cells before the lines, so no ring or spoke runs through it. */
+		const hub = town.kind === TownKind.RADIAL;
+		const plaza = hub ? PLAZA_SHARE * radialFrame(town).blockA : PLAZA_RADIUS + PLAZA_PER_TIER * town.tier;
 		districts.prepare(town, x0, y0, size);
 		blocks.clear();
 		this.rectCount = 0;
@@ -128,6 +164,11 @@ export class Fabric {
 				const level = Towns.level(town, x, y, shapes[i]);
 				if (level <= 0 || (shared && !towns.owns(town, x, y, level, shapes[i]))) continue;
 
+				const center = (x - town.x) * (x - town.x) + (y - town.y) * (y - town.y) < plaza * plaza;
+				if (hub && center) {
+					if (wet === 0) out[i] = CellType.PLAZA;
+					continue;
+				}
 				const district = districts.locate(x, y);
 				const { view } = district;
 				let line: number = Line.AVENUE;
@@ -142,7 +183,7 @@ export class Fabric {
 					continue;
 				} else if (line === Line.STREET && !this.dropped(town, view, level)) {
 					out[i] = CellType.STREET;
-				} else if ((x - town.x) * (x - town.x) + (y - town.y) * (y - town.y) < plaza * plaza) {
+				} else if (center) {
 					out[i] = CellType.PLAZA;
 				} else {
 					out[i] = line === Line.STREET ? CellType.GROUND : this.content(town, district, x, y);
@@ -157,7 +198,7 @@ export class Fabric {
 	 * families on a street), so the streets on both sides of a dropped segment stay joined to the grid. Downtown keeps every street. The
 	 * dropped cells are open ground; a cul-de-sac frame keeps the first `CUL_KEEP` of the segment from the end that a bit of the hash picks.
 	 */
-	private dropped(town: Town, view: FrameView, level: number): boolean {
+	private dropped(town: Town, view: CellView, level: number): boolean {
 		const { frame } = view;
 		if (frame.drop === 0 || (town.tier > 0 && level > DOWNTOWN_LEVEL)) return false;
 		let h: number;
@@ -209,11 +250,9 @@ export class Fabric {
 	}
 
 	/** Decides the block of the frame of `view` that holds its current cell: the zone comes from the level at the center of the block. */
-	private build(town: Town, view: FrameView): Block {
+	private build(town: Town, view: CellView): Block {
 		const { frame } = view;
-		const centerA = view.originA + view.width / 2;
-		const centerB = view.originB + view.height / 2;
-		const level = this.towns.urban(town, Math.round(frameX(frame, centerA, centerB)), Math.round(frameY(frame, centerA, centerB)));
+		const level = this.towns.urban(town, Math.round(view.worldX(view.width / 2, view.height / 2)), Math.round(view.worldY(view.width / 2, view.height / 2)));
 		const downtown = town.tier > 0 && level > DOWNTOWN_LEVEL;
 		const zone = town.tier === 3 && level > CBD_LEVEL ? CBD : downtown ? DOWNTOWN : town.tier > 0 && level > INNER_LEVEL ? INNER : SUBURB;
 		const id = hash(frame.key, view.ka, view.kb, Salt.BLOCK);
@@ -263,16 +302,14 @@ export class Fabric {
 	 * side, so two buildings are 2 units apart: a gap of 2 units is at least `sqrt(2)` cells across at any angle, which keeps the yards
 	 * between the buildings 4-connected. On a warped frame the warp stretches the units: `a` changes by up to 1.54 between cells that share
 	 * an edge and 2.49 between cells that touch at a corner (`|c| + |s|` of the grid, at most 1.414, plus 0.54 of warp per axis), so two
-	 * buildings 2 units apart can still touch at a corner. The yard on the high side is 2, a gap of 3, which no pair of cells crosses. On an axis-aligned frame a downtown
-	 * building can touch its street.
+	 * buildings 2 units apart can still touch at a corner. The yard on the high side is 2, a gap of 3, which no pair of cells crosses. In a radial
+	 * block a unit of `u` and of `v` is at least a cell (the spokes diverge, so a gap only widens outward), which is the rule of the
+	 * rotated frames. On an axis-aligned frame a downtown building can touch its street.
 	 */
 	private lot(x: number, y: number, w: number, h: number): void {
 		const { town, view, zone } = this;
 		if (town === null || view === null) return;
-		const { frame } = view;
-		const a = view.originA + x + w / 2;
-		const b = view.originB + y + h / 2;
-		const level = this.towns.urban(town, Math.round(frameX(frame, a, b)), Math.round(frameY(frame, a, b)));
+		const level = this.towns.urban(town, Math.round(view.worldX(x + w / 2, y + h / 2)), Math.round(view.worldY(x + w / 2, y + h / 2)));
 		if (level <= 0) return;
 		const roll = hash(this.blockId, x, y, Salt.LOT);
 		const suburb = zone === SUBURB;

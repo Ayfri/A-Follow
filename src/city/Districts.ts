@@ -1,5 +1,6 @@
-import { type Frame, FrameKind, FrameView, WarpSet } from './Frame';
+import { type CellView, type Frame, FrameKind, FrameView, linePosition, WarpSet } from './Frame';
 import { hash, Salt, unit } from './hash';
+import { radialFrame, RadialView } from './Radial';
 import { type Town, TownKind, type Towns } from './Towns';
 
 /** Side of the lattice that holds the district seeds, per tier: a village is one district, a city has districts of 260 cells. */
@@ -26,13 +27,16 @@ const ORGANIC_SPRAWL = 0.5;
 /** The metropolis downtown (a district seed above this level) has blocks of 28 to 36 cells. */
 export const CBD_LEVEL = 0.75;
 /**
- * Tangent of the half angle that a district turns off the axis of its town, at most: 0.2217 is 25 degrees in all, 0.0875 is 10. 30% of the
- * districts of a planned town keep the axis of the town exactly.
+ * Tangent of the half angle that a district turns off the axis of its town, at most: 0.2217 is 25 degrees in all, 0.0875 is 10 (the
+ * other kinds that are not free, which is the harbor: a radial town aims its districts at the center). 30% of the districts of a planned
+ * town keep the axis of the town exactly.
  */
 const PLANNED_SPREAD = 0.2217;
 const RING_SPREAD = 0.0875;
 const KEEP_AXIS_SHARE = 0.3;
 const AVENUE_WIDTH = 2;
+/** The main street of a linear town is this many streets thick. */
+const SPINE_WIDTH = 3;
 
 /**
  * Ranges of the block sizes of a style, in cells: `blockB` is `blockA` times 0.6 to 1.6 when `ratio`. A WARP style bends its lines by
@@ -70,8 +74,9 @@ const CBD_STYLE: Style = { minA: 28, spanA: 9, minB: 28, spanB: 9, ratio: false,
 const ORGANIC_STYLE: Style = { minA: 10, spanA: 7, minB: 10, spanB: 7, ratio: false, avenueEvery: 6, kind: FrameKind.WARP, warp: ORGANIC_WARP, warpSet: 0, drop: ORGANIC_DROP, culDeSac: false };
 const SPRAWL_STYLE: Style = { minA: 28, spanA: 13, minB: 12, spanB: 7, ratio: false, avenueEvery: 5, kind: FrameKind.WARP, warp: SPRAWL_WARP, warpSet: 1, drop: SPRAWL_DROP, culDeSac: true };
 /**
- * The cross streets are close (family A runs across the axis), the long streets along the axis are far apart. Nothing is dropped: the few
- * long streets are the whole network of the town, and with 12% dropped a village lost whole streets (88.8% of its roads joined, under 90%).
+ * The cross streets are close (family A runs across the axis), the long streets along the axis are far apart, and the one through the
+ * center is the spine, an avenue of `SPINE_WIDTH` streets. Nothing is dropped: the few long streets are the whole network of the town,
+ * and with 12% dropped a village lost whole streets (88.8% of its roads joined, under 90%).
  */
 const LINEAR_STYLE: Style = { minA: 14, spanA: 9, minB: 40, spanB: 21, ratio: false, avenueEvery: 4, kind: FrameKind.GRID, warp: 0, warpSet: 0, drop: 0, culDeSac: false };
 
@@ -83,19 +88,22 @@ export interface District {
 	slot: number;
 	sx: number;
 	sy: number;
-	view: FrameView;
+	view: CellView;
 }
 
 /**
  * The districts of a town: the plane is cut into the Voronoi cells of seeds placed on a lattice anchored at the town center (one hashed
  * seed per square), each with its own street frame, and the boundary between two districts is an avenue. A village and a linear town are
  * one district. `prepare` finds the seeds that matter for a tile and builds their frames, and a cell only compares those, so a tile of any
- * size and origin gives a cell the same district.
+ * size and origin gives a cell the same district. A radial town has one more district, the disc of its rings and spokes around the center,
+ * which takes its cells before the seeds are compared; the districts around it are grids that point at the center.
  */
 export class Districts {
 	private readonly towns: Towns;
 	private readonly warps: readonly [WarpSet, WarpSet];
 	private entries: District[] = [];
+	private radial: District | null = null;
+	private disc: RadialView | null = null;
 	/** Whether the last `locate` cell is within the boundary avenue of its district. */
 	boundary = false;
 
@@ -114,6 +122,8 @@ export class Districts {
 		const side = town.kind === TownKind.LINEAR ? 0 : DISTRICT_SIZE[town.tier];
 		const entries: District[] = [];
 		this.entries = entries;
+		this.radial = null;
+		this.disc = null;
 		if (side === 0) {
 			entries.push({ slot: 0, sx: town.x, sy: town.y, view: this.view(this.frameOf(town, 0, 0, town.x, town.y), x0, y0, size) });
 			return;
@@ -144,6 +154,16 @@ export class Districts {
 			if (seed.near > reach + CANDIDATE_MARGIN) continue;
 			entries.push({ slot: entries.length, sx: seed.sx, sy: seed.sy, view: this.view(this.frameOf(town, seed.i, seed.j, seed.sx, seed.sy), x0, y0, size) });
 		}
+		if (town.kind !== TownKind.RADIAL) return;
+
+		/** A tile farther from the center than the ring that bounds the disc, plus the thickness of the ring, holds no cell of it. */
+		const frame = radialFrame(town);
+		const nearX = Math.max(x0 - town.x, 0, town.x - x1);
+		const nearY = Math.max(y0 - town.y, 0, town.y - y1);
+		const discReach = linePosition(frame, 0, frame.rings) + AVENUE_WIDTH;
+		if (nearX * nearX + nearY * nearY > discReach * discReach) return;
+		this.disc = new RadialView(frame);
+		this.radial = { slot: entries.length, sx: town.x, sy: town.y, view: this.disc };
 	}
 
 	/**
@@ -153,7 +173,11 @@ export class Districts {
 	 * `BOUNDARY_WIDTH * (|nx| + |ny|) / (2 |n|)`: the `2 |n|` cancels.
 	 */
 	locate(x: number, y: number): District {
-		const { entries } = this;
+		const { entries, radial, disc } = this;
+		if (radial !== null && disc !== null && disc.contains(x, y)) {
+			this.boundary = false;
+			return radial;
+		}
 		let best = entries[0];
 		if (entries.length === 1) {
 			this.boundary = false;
@@ -207,8 +231,14 @@ export class Districts {
 		const t = free ? 2 * unit(param(Param.ANGLE)) - 1 : keep ? 0 : spread * (2 * unit(param(Param.ANGLE)) - 1);
 		const cosine = (1 - t * t) / (1 + t * t);
 		const sine = (2 * t) / (1 + t * t);
-		const c = free ? cosine : town.axisX * cosine - town.axisY * sine;
-		const s = free ? sine : town.axisY * cosine + town.axisX * sine;
+		let c = free ? cosine : town.axisX * cosine - town.axisY * sine;
+		let s = free ? sine : town.axisY * cosine + town.axisX * sine;
+		/** The grids around the disc of a radial town have their A axis along the ray from the center, so their streets run out from it and across. */
+		const away = Math.sqrt((sx - town.x) ** 2 + (sy - town.y) ** 2);
+		if (kind === TownKind.RADIAL && away > 0) {
+			c = (sx - town.x) / away;
+			s = (sy - town.y) / away;
+		}
 
 		const blockA = style.minA + (param(Param.BLOCK_A) % style.spanA);
 		const blockB = style.ratio ? Math.round(blockA * (0.6 + unit(param(Param.BLOCK_B)))) : style.minB + (param(Param.BLOCK_B) % style.spanB);
@@ -223,7 +253,7 @@ export class Districts {
 			blockA,
 			blockB,
 			phaseA: param(Param.PHASE_A) % blockA,
-			phaseB: param(Param.PHASE_B) % blockB,
+			phaseB: style === LINEAR_STYLE ? 0 : param(Param.PHASE_B) % blockB,
 			jitterA: blockA >> 3,
 			jitterB: blockB >> 3,
 			avenueEvery: style.avenueEvery,
@@ -232,6 +262,8 @@ export class Districts {
 			warpSet: style.warpSet,
 			drop: style.drop,
 			culDeSac: style.culDeSac,
+			spine: style === LINEAR_STYLE ? SPINE_WIDTH : 0,
+			rings: 0,
 			key,
 		};
 	}

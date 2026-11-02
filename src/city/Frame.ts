@@ -3,7 +3,7 @@ import { SampledField, ValueNoise } from './Noise';
 
 /**
  * How a district lays its streets out: a straight grid, a grid bent by a smooth warp, rings and spokes around the center. GRID and WARP
- * are evaluated, RADIAL is reserved so a frame can switch to it without a new type.
+ * are evaluated by `FrameView`, RADIAL by `RadialView`.
  */
 export const FrameKind = { GRID: 0, WARP: 1, RADIAL: 2 } as const;
 export type FrameKind = (typeof FrameKind)[keyof typeof FrameKind];
@@ -41,14 +41,50 @@ export interface Frame {
 	/** Share of the street segments between two crossings that are left out; a cul-de-sac frame keeps the start of them as a dead end. */
 	drop: number;
 	culDeSac: boolean;
+	/** Width in streets of the line 0 of family B, which runs through the origin along the A axis (the main street of a linear town), 0 for none. */
+	spine: number;
+	/** Number of the ring that bounds a RADIAL frame, 0 for the other kinds: the rings are the lines of family A, the spokes are the lines of B. */
+	rings: number;
 	/** Uint32 hash that names the frame in the hashes of its lines and blocks. */
 	key: number;
 }
 
 export const Line = { NONE: 0, STREET: 1, AVENUE: 2 } as const;
 
+/**
+ * What `Fabric` reads of a district frame once it has located a cell: the lines the cell is on and the block it is in, with its position
+ * in the block-local coordinates the lots are cut in (`u` along the first family, `v` along the second).
+ */
+export interface CellView {
+	readonly frame: Frame;
+	/** Whether the cell is on a line (`Line`): the avenue wins over the street where they cross. */
+	line: number;
+	/**
+	 * The line of each family the cell is on, and its number, set when `line` is not NONE: a street cell with the other family NONE is on a
+	 * segment of its line, between two cross streets, and one with both families on a street is a crossing.
+	 */
+	lineA: number;
+	lineB: number;
+	hitA: number;
+	hitB: number;
+	/** Numbers of the lines that bound the block of the cell: its low side, `ka` for family A and `kb` for B. */
+	ka: number;
+	kb: number;
+	/** Position of the cell in its block: `0 <= u < width` and `0 <= v < height` for a cell inside the block. */
+	u: number;
+	v: number;
+	width: number;
+	height: number;
+	/** Sets the fields above for the cell (x, y). */
+	locate(x: number, y: number): void;
+	/** World x and y of the point (u, v) of the block of the last located cell. */
+	worldX(u: number, v: number): number;
+	worldY(u: number, v: number): number;
+}
+
 /** Position on its axis of the line number `k` of family A (`family` 0) or B (1). */
 export const linePosition = (frame: Frame, family: 0 | 1, k: number): number => {
+	if (family === 1 && k === 0 && frame.spine > 0) return 0;
 	const block = family === 0 ? frame.blockA : frame.blockB;
 	const jitter = family === 0 ? frame.jitterA : frame.jitterB;
 	return (family === 0 ? frame.phaseA : frame.phaseB) + k * block + (hash(frame.key, k, family, Salt.LINE_JITTER) % (2 * jitter + 1)) - jitter;
@@ -139,12 +175,13 @@ class Family {
 		this.avenue = new Uint8Array(count);
 		for (let i = 0; i < count; i++) {
 			const k = this.first + i;
-			const thick = (k % frame.avenueEvery === 0 ? frame.avenueWidth : 1) * frame.half;
+			const wide = k % frame.avenueEvery === 0;
+			const width = family === 1 && k === 0 && frame.spine > 0 ? frame.spine : wide ? frame.avenueWidth : 1;
 			this.lines[i] = linePosition(frame, family, k);
-			this.ends[i] = this.lines[i] - thick;
-			this.starts[i] = this.lines[i] + thick;
-			this.widths[i] = k % frame.avenueEvery === 0 ? frame.avenueWidth : 1;
-			this.avenue[i] = k % frame.avenueEvery === 0 ? 1 : 0;
+			this.ends[i] = this.lines[i] - width * frame.half;
+			this.starts[i] = this.lines[i] + width * frame.half;
+			this.widths[i] = width;
+			this.avenue[i] = wide ? 1 : 0;
 		}
 	}
 
@@ -198,7 +235,7 @@ class Family {
  * compares its `a` and `b` with the limits of that block, which is most of them. The answer never depends on the cells located before:
  * the block limits are the same comparisons as the line tests.
  */
-export class FrameView {
+export class FrameView implements CellView {
 	readonly frame: Frame;
 	/** Whether the cell is on a line (`Line`): the avenue wins over the street where they cross. */
 	line: number = Line.NONE;
@@ -323,6 +360,14 @@ export class FrameView {
 			return;
 		}
 		this.resolve(a, b, ha, hb);
+	}
+
+	worldX(u: number, v: number): number {
+		return frameX(this.frame, this.originA + u, this.originB + v);
+	}
+
+	worldY(u: number, v: number): number {
+		return frameY(this.frame, this.originA + u, this.originB + v);
 	}
 
 	/** Finds the lines and the block of a cell with coordinates (a, b) and extents (ha, hb), and keeps that block as the one the next cell is compared with. */

@@ -82,4 +82,5 @@ export const Salt = {
 	SPRAWL_WARP_B: 67,
 	SEGMENT_DROP_A: 68,
 	SEGMENT_DROP_B: 69,
+	RADIAL: 70,
 } as const;
