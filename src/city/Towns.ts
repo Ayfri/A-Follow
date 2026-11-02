@@ -33,7 +33,7 @@ export interface Town {
 
 /** Share of the regions that hold a town. */
 const TOWN_CHANCE = 0.6;
-/** The center stays 96 cells inside its region, so a town only ever reaches the regions around its own. */
+/** The center stays 96 cells inside its region; the reach of a town (up to `Towns.MAX_REACH`, 2.6 regions) still goes past the regions around its own. */
 const CENTER_MARGIN = 96;
 const CENTER_SPREAD = 320;
 /** Share of the towns that are villages, then of those that are villages or towns: the rest are cities. */

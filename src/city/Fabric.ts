@@ -94,7 +94,6 @@ export class Fabric {
 	private lastKey = -1;
 	private last: Block = { type: CellType.GROUND, id: 0, start: 0, count: 0, hit: 0 };
 
-	/** The block being built. */
 	private town: Town | null = null;
 	private view: CellView | null = null;
 	private zone: Zone = SUBURB;

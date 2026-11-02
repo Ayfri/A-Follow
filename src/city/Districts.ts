@@ -4,7 +4,7 @@ import { hash, Salt, unit } from './hash';
 import { radialFrame, RadialView } from './Radial';
 import { type Town, TownKind, type Towns } from './Towns';
 
-/** Side of the lattice that holds the district seeds, per tier: a village is one district, a city has districts of 260 cells. */
+/** Side of the lattice that holds the district seeds, per tier: a village is one district, a town has districts of 170 cells, a city 210 and a metropolis 260. */
 const DISTRICT_SIZE: readonly number[] = [0, 170, 210, 260];
 /**
  * A seed sits up to this share of the lattice side off the center of its square. The 3 x 3 squares around a cell hold its nearest seed

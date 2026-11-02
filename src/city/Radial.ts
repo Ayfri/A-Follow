@@ -19,7 +19,11 @@ const SPOKE_LEVELS = 4;
 /** How far a cell reaches from its center across a line of its own direction at most: the half diagonal of the cell. */
 const REACH = Math.SQRT1_2;
 
-/** The ring road of a metropolis and of a radial city: a highway on a circle at this share of the radius, 3 cells wide, outside the disc of the rings. */
+/**
+ * The ring road of a metropolis and of a radial city: a highway on a circle at this share of the radius, 3 cells wide. It runs near the edge
+ * of the disc of the rings and is outside it only for the biggest towns: below a radius of 360 it can overlap the bounding ring (radius 220,
+ * spacing 26: the disc edge at 156 +- 3, the road at 158.4 +- 2.1), and both are passable.
+ */
 export const RING_ROAD_SHARE = 0.72;
 export const RING_ROAD_WIDTH = 3;
 export const hasRingRoad = (town: Town): boolean => town.tier === 3 || (town.kind === TownKind.RADIAL && town.tier >= 2);
@@ -111,7 +115,6 @@ export class RadialView implements CellView {
 	v = 0;
 	width = 0;
 	height = 0;
-	/** Radius of the plaza. */
 	readonly plaza: number;
 	private readonly rings: Float64Array;
 	/** Cells closer than this are in the disc whatever their extent: the radius of the ring that bounds it. */

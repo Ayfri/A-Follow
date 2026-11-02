@@ -47,7 +47,7 @@ export class Walls {
 	private y = 0;
 	private c = 1;
 	private s = 0;
-	radius = 0;
+	private radius = 0;
 	private lowSquared = 0;
 	private highSquared = 0;
 	private roadSquared = 0;
@@ -57,7 +57,6 @@ export class Walls {
 		this.noise = new ValueNoise(seed, Salt.WALL_SHAPE, WALL_PERIOD);
 	}
 
-	/** Radius of the wall of the town, in cells. */
 	static radiusOf(town: Town): number {
 		return Math.max(WALL_MIN, (town.tier === 3 ? METRO_WALL_SHARE : WALL_SHARE) * town.radius);
 	}
@@ -178,11 +177,14 @@ export class Harbor {
 		return lakes !== null && lakes[i] > LAKE_LEVEL - LAKE_QUAY && e < HILL_LEVEL + LAKE_QUAY;
 	}
 
-	/** 0 dry, 1 river, 2 sea or lake at (x, y): the mask inside the tile, the point queries outside. */
+	/** 0 dry (rock included), 1 river, 2 sea or lake at (x, y): the mask inside the tile, the point queries outside, which know no rock. */
 	private wetAt(x: number, y: number): number {
 		const col = x - this.x0;
 		const row = y - this.y0;
-		if (col >= 0 && col < this.size && row >= 0 && row < this.size) return this.mask[row * this.size + col];
+		if (col >= 0 && col < this.size && row >= 0 && row < this.size) {
+			const wet = this.mask[row * this.size + col];
+			return wet === 3 ? 0 : wet;
+		}
 		return this.water.wideAt(x, y) ? 2 : this.water.riverAt(x, y) ? 1 : 0;
 	}
 
@@ -209,8 +211,9 @@ export class Harbor {
 	}
 
 	/**
-	 * Whether the cell (x, y), which is sea or lake and painted for `town`, is on a pier of `town`. The cells of the walk to the quay must be
-	 * painted for the town too, or the piece of the pier inside its border would be cut off from the land by cells that are not painted.
+	 * Whether the cell (x, y), which is sea or lake and painted for `town`, is on a pier of `town`. The cells of the walk to the quay, and the
+	 * dry cell that ends it, must be painted for the town too: else the pier would be cut off from the land by cells that are not painted, or
+	 * end on the ground of another town.
 	 */
 	pier(town: Town, x: number, y: number): boolean {
 		if (!this.shallow(x, y)) return false;
@@ -245,7 +248,7 @@ export class Harbor {
 				if (o >= -half && o < half && Math.abs(o) <= best) { nextX = px; nextY = py + stepY; best = Math.abs(o); }
 			}
 			if (best === Infinity) return false;
-			if (this.wetAt(nextX, nextY) === 0) return true;
+			if (this.wetAt(nextX, nextY) === 0) return this.paints(town, nextX, nextY);
 			px = nextX;
 			py = nextY;
 		}
