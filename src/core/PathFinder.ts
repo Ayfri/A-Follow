@@ -24,7 +24,8 @@ interface Span {
  * JPS4 (arXiv 2501.14816) is A* over jump points with a horizontal-first canonical ordering: a vertical run jumps to the next cell with a
  * forced neighbor (or the goal), a horizontal move is a single step, and the edge cost is the run length.
  * The typed buffers only grow and are reused across searches, so a search allocates nothing but its result.
- * Given a `Connectivity`, a target the start can't reach inside the window is rejected before the window is copied, not by scanning it.
+ * Given a `Connectivity`, a target the start can't reach inside the window is rejected without a search: before the window is copied,
+ * except with `snap` on a wall target, where the copy comes first because the nearest open cell is found on it.
  */
 export class PathFinder {
 	/** Cells searched around the visible rect, so paths can bend around walls just outside the screen. */
@@ -38,7 +39,7 @@ export class PathFinder {
 	static readonly MAX_WINDOW_AREA = 1 << 23;
 	/**
 	 * Expanded nodes between two yields of `steps` (scanned cells for JPS4), which is how late a newer request is seen. A slice takes, in
-	 * node on 2240 x 1265, medians: A* ~7 ms on a maze and 15 to 18 ms on random grids, the bidirectional search 3 to 4 ms, JPS4 2 to 6 ms.
+	 * Node.js (V8) on 2240 x 1265, medians: A* ~7 ms on a maze and 15 to 18 ms on random grids, the bidirectional search 3 to 4 ms, JPS4 2 to 6 ms.
 	 */
 	static readonly SLICE = 50_000;
 	/**
@@ -52,13 +53,14 @@ export class PathFinder {
 	/**
 	 * Wall densities (see `density`) that pick the search of a query without a given kind: A* below `JPS_DENSITY`, JPS4 from there up to
 	 * `BFS_DENSITY`, the bidirectional search from there. Full-window queries 200+ apart on random grids of 2240 x 1265 and 2048 x 2048,
-	 * medians in node (V8), in ms, 12 queries per pass:
+	 * medians in Node.js (V8), in ms, 12 queries per pass:
 	 *  - open: A* 5 / JPS4 70 (it scans lines to the edge), 1 to 2%: a tie, 5%: 94 / 73 and 112 / 75, 10%: 118 / 86 and 584 / 363,
 	 *    20%: 182 / 139 and 445 / 289, 30%: 352 / 242 and 554 / 395, 35%: bidirectional 489 / JPS4 383 and 514 / 370;
 	 *  - 36%: bidirectional 473 / JPS4 397 (JPS4 faster) and 742 / 689, 37%: 545 / 584 (tie) and 487 / 401 (JPS4 faster),
 	 *    38%: 571 / 673 (bidirectional faster) and 499 / 528 (tie), 39%: 512 / 689 and 470 / 576, 40%: 421 / 729 and 509 / 822;
 	 *  - mazes: bidirectional 671 / JPS4 988 and 659 / 1047, and 2 to 2.1x faster than A*; at 40% it is 2.4 to 2.5x faster than A*.
-	 * Bun gives the same bands. A* beats the bidirectional search up to ~30% (0.72 to 0.91x for bidirectional), a range JPS4 now beats too.
+	 * Bun gives the same bands. Between 5% and 30% A* is faster than the bidirectional search (0.72 to 0.91x for bidirectional) and JPS4
+	 * is faster than both.
 	 * The bounds sit halfway between the last density where one side wins and the first where the other does (0.03 between a tie at 0.02
 	 * and a win at 0.05, 0.36 between JPS4 still winning at 0.346 and 0.370 and the bidirectional search winning at 0.365 and 0.390). A search
 	 * from one end only never beat the bidirectional one (a tie on mazes) and is not kept. Pairs 20 to 200 apart show no difference between the

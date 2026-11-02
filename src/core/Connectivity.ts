@@ -27,7 +27,7 @@ const NEIGHBORS: readonly (readonly [dx: number, dy: number])[] = [[0, -1], [1, 
  * labeled one, and the union-find is rebuilt when the grid revision or the chunk range changes (a rebuild costs in proportion to the
  * components, not the cells). It lives in the path worker only: the main thread would pay the relabel of every chunk of a fill in its frame.
  *
- * Measured in node (V8), random 20% to 35% and mazes. A window of 2272 x 1297 (180 chunks with walls): the first query after a fill labels
+ * Measured in Node.js (V8), random 20% to 35% and mazes. A window of 2272 x 1297 (180 chunks with walls): the first query after a fill labels
  * every chunk in 40 to 63 ms (0.21 to 0.28 ms per chunk), the first one after one wall change takes ~1.3 ms (the union-find rebuild and one
  * relabel), a repeated one ~60 ns. At 4096 x 2048 (512 chunks) that is 106 to 156 ms and 3.4 to 4.2 ms. Labels take 32 KB per chunk that has
  * walls (16 MB at 4096 x 2048). A target walled in on a 2240 x 1265 grid is rejected in ~50 ms the first time and ~1.3 ms after a wall change,
