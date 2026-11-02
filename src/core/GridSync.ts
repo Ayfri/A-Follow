@@ -1,5 +1,6 @@
 import type { GridMessage } from './pathMessages';
 import type { CellRect, WallGrid, WallObserver } from './WallGrid';
+import type { World } from './World';
 
 /** Collects the mutations of a grid and sends them to a worker once per `flush`, with consecutive single cells batched into one message. */
 export class GridSync implements WallObserver {
@@ -24,6 +25,9 @@ export class GridSync implements WallObserver {
 			case 'clear':
 				grid.clear();
 				break;
+			case 'world':
+				grid.setWorld(message.world);
+				break;
 		}
 	}
 
@@ -46,6 +50,11 @@ export class GridSync implements WallObserver {
 	cleared(): void {
 		this.seal();
 		this.queue.push({ type: 'clear' });
+	}
+
+	world(world: World): void {
+		this.seal();
+		this.queue.push({ type: 'world', world });
 	}
 
 	/** Posts the pending messages in order, transferring their buffers. */

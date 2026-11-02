@@ -1,11 +1,16 @@
 import type { CellRect, Position } from './WallGrid';
+import type { World } from './World';
 
-/** Wall mutations in the order they happened, replayed on the worker's mirror grid. */
+/**
+ * Grid mutations in the order they happened, replayed on the worker's mirror grid. A world change carries only the world: the mirror
+ * generates the terrain from the seed itself, so generated chunks never cross the thread boundary.
+ */
 export type GridMessage =
 	/** (x, y, wall) triples. */
 	| { type: 'cells'; data: Int32Array<ArrayBuffer> }
 	| { type: 'rect'; rect: CellRect; cells: Uint8Array<ArrayBuffer> }
-	| { type: 'clear' };
+	| { type: 'clear' }
+	| { type: 'world'; world: World };
 
 export interface FindRequest {
 	type: 'find';

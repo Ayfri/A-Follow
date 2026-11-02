@@ -90,6 +90,8 @@ export class PathFinder {
 	 * the ring span less than its size, and no two of them share a slot.
 	 */
 	private static readonly BUCKETS = 1 << (32 - Math.clz32(2 * MAX_COST));
+	/** One bit per type that doesn't block: what an unknown chunk of a generating world may hold. */
+	private static readonly ANY_PASSABLE = BLOCKED.reduce((bits, blocked, type) => (blocked === 0 ? bits | (1 << type) : bits), 0);
 
 	/** Window cells: 0 = open and nonzero = blocked for the unit searches, the cost to enter (0 = blocked) for the weighted one (`costLayout`). */
 	private cells = new Uint8Array(0);
@@ -213,6 +215,7 @@ export class PathFinder {
 		if ((right - left) * (bottom - top) > PathFinder.NEAR_AREA) return null;
 
 		const near = { x: left, y: top, width: right - left, height: bottom - top };
+		grid.ensure(near);
 		const passable = PathFinder.stats(grid, near).passable;
 		const path = this.find(grid, start, target, near, false, PathFinder.NEAR_BUDGET, (passable & (passable - 1)) === 0 ? 'astar' : 'weighted');
 		const distance = Math.abs(start.x - target.x) + Math.abs(start.y - target.y);
@@ -230,9 +233,11 @@ export class PathFinder {
 	 * `find` as a generator that yields every `SLICE` expanded nodes, so a caller can run other work in between or drop the search.
 	 * The grid is only read before the first yield: the search then runs on its own copy of the window.
 	 * The connectivity check, when there is one, ends the generator before its first yield.
+	 * In a generating world the window is generated first, in one go: a caller with a big window ensures it beforehand in slices.
 	 */
 	*steps(grid: WallGrid, start: Position, target: Position, window: CellRect, snap: boolean, budget = Infinity, kind?: SearchKind): Generator<void, Position[] | null, undefined> {
 		if (!PathFinder.contains(window, start) || !PathFinder.contains(window, target)) return null;
+		grid.ensure(window);
 
 		const wallTarget = grid.isWall(target.x, target.y);
 		if (wallTarget && !snap && (start.x !== target.x || start.y !== target.y)) return null;
@@ -344,7 +349,7 @@ export class PathFinder {
 	/**
 	 * Sums what the chunks overlapping the window hold: approximate at the edges, where a chunk reaches outside the window. That makes
 	 * `passable` a superset and `minCost` a lower bound of the window's own, which keeps a uniform test and the heuristic scale safe.
-	 * A missing chunk is all ground.
+	 * A missing chunk is all ground in the Empty world, and unknown in a generating one, where it may hold every passable type.
 	 */
 	private static stats(grid: WallGrid, window: CellRect): WindowStats {
 		const firstX = window.x >> CHUNK_BITS;
@@ -357,7 +362,7 @@ export class PathFinder {
 			for (let cx = firstX; cx <= lastX; cx++) {
 				const chunk = grid.chunkAt(cx, cy);
 				if (chunk === undefined) {
-					passable |= 1 << CellType.GROUND;
+					passable |= grid.generates ? PathFinder.ANY_PASSABLE : 1 << CellType.GROUND;
 					continue;
 				}
 				walls += chunk.walls;
